@@ -56,15 +56,18 @@ const UI = {
             return distA - distB;
         });
 
+
         if (irregList.length === 0) {
             content.innerHTML = `
                 <div class="empty-state">
-                    <div class="empty-state-icon">✅</div>
-                    <div class="empty-state-text">Sem irregularidades no momento</div>
+                    <div class="empty-state-icon">🎉</div>
+                    <div class="empty-state-text">Tudo em ordem!</div>
+                    <p style="color: var(--color-grey); margin-top: var(--spacing-sm); font-size: var(--font-size-sm);">Não há irregularidades neste momento</p>
                 </div>
             `;
             return;
         }
+
 
         let html = '<div class="list-container">';
 
@@ -80,22 +83,29 @@ const UI = {
                     <div class="card-header">
                         <div>
                             <div class="card-title">${irreg.spotId}</div>
-                            <div class="card-subtitle">${spot?.rua || 'Sem rua'}</div>
+                            <div class="card-subtitle">📍 ${spot?.rua || 'Local não especificado'}</div>
                         </div>
                         <span class="badge badge-danger">Irregular</span>
                     </div>
                     
-                    <div style="margin-bottom: var(--spacing-md);">
-                        <strong>Tempo ocupado sem pagamento:</strong> ${minutes}min ${seconds}s<br>
-                        ${distanceText ? `<strong>Distância:</strong> ${distanceText}<br>` : ''}
+                    <div style="margin-bottom: var(--spacing-md); color: var(--color-grey-dark);">
+                        <div style="display: flex; align-items: center; gap: var(--spacing-xs); margin-bottom: var(--spacing-xs);">
+                            <span style="font-size: 1.25rem;">⏱️</span>
+                            <strong>${minutes}min ${seconds}s</strong> sem pagamento
+                        </div>
+                        ${distanceText ? `
+                        <div style="display: flex; align-items: center; gap: var(--spacing-xs);">
+                            <span style="font-size: 1.25rem;">📏</span>
+                            <span>${distanceText} de distância</span>
+                        </div>` : ''}
                     </div>
                     
                     <div class="card-actions">
                         <button class="btn btn-secondary btn-sm" onclick="UI.viewSpotOnMap('${irreg.spotId}')">
-                            Ver no mapa
+                            🗺️ Ver Mapa
                         </button>
                         <button class="btn btn-primary btn-sm" onclick="UI.showFineModal('${irreg.spotId}')">
-                            Validar e emitir coima
+                            ⚡ Multar
                         </button>
                     </div>
                 </div>
@@ -139,52 +149,53 @@ const UI = {
                 
                 <form id="fineForm" class="modal-body">
                     ${withinTolerance ? `
-                        <div class="badge badge-success" style="display: block; padding: var(--spacing-md); margin-bottom: var(--spacing-md);">
-                            ⚠️ Em tolerância (${minutes} min). Não é possível multar.
+                        <div style="background: var(--gradient-success); color: white; padding: var(--spacing-md); border-radius: var(--border-radius-md); margin-bottom: var(--spacing-md); text-align: center; font-weight: 600;">
+                            ✋ Dentro da tolerância (${minutes} min)<br>
+                            <small style="opacity: 0.9;">Necessário >5 min para multar</small>
                         </div>
                     ` : ''}
                     
                     <div class="form-group">
-                        <label for="finePlate">Matrícula *</label>
+                        <label for="finePlate">🚗 Matrícula *</label>
                         <input type="text" id="finePlate" required ${withinTolerance ? 'disabled' : ''} 
                                placeholder="AA-00-BB" pattern="[A-Z]{2}-[0-9]{2}-[A-Z]{2}">
                     </div>
                     
                     <div class="form-group">
-                        <label>Lugar</label>
-                        <input type="text" value="${spotId} - ${spot?.rua || ''}" readonly>
+                        <label>📍 Lugar</label>
+                        <input type="text" value="${spotId} - ${spot?.rua || 'N/D'}" readonly style="background: var(--color-grey-light);">
                     </div>
                     
                     <div class="form-group">
-                        <label>Data/Hora</label>
-                        <input type="text" value="${new Date().toLocaleString('pt-PT')}" readonly>
+                        <label>🕐 Data/Hora</label>
+                        <input type="text" value="${new Date().toLocaleString('pt-PT')}" readonly style="background: var(--color-grey-light);">
                     </div>
                     
                     <div class="form-group">
-                        <label>Fiscal Responsável</label>
-                        <input type="text" value="${fiscal.nome} (${fiscal.id})" readonly>
+                        <label>👤 Fiscal</label>
+                        <input type="text" value="${fiscal.nome} (${fiscal.id})" readonly style="background: var(--color-grey-light);">
                     </div>
                     
                     <div class="form-group">
-                        <label>GPS</label>
-                        <div id="gpsInfo" style="margin-bottom: var(--spacing-sm);">
-                            A obter localização...
+                        <label>📍 GPS</label>
+                        <div id="gpsInfo" style="margin-bottom: var(--spacing-sm); padding: var(--spacing-sm); background: var(--color-grey-light); border-radius: var(--border-radius-sm); font-size: var(--font-size-sm);">
+                            📡 A obter localização...
                         </div>
                         <button type="button" class="btn btn-secondary btn-sm" onclick="UI.refreshGPS()" ${withinTolerance ? 'disabled' : ''}>
-                            Obter novamente
+                            🔄 Atualizar GPS
                         </button>
                     </div>
                     
                     <div class="form-group">
-                        <label for="finePhotos">Fotografias (1-3) *</label>
+                        <label for="finePhotos">📷 Fotos (1-3) *</label>
                         <input type="file" id="finePhotos" accept="image/*" capture="environment" 
                                multiple max="3" ${withinTolerance ? 'disabled' : ''} required>
                         <div id="photoPreview" class="photo-preview-container"></div>
                     </div>
                     
                     <div class="form-group">
-                        <label for="fineObservations">Observações</label>
-                        <textarea id="fineObservations" rows="3" ${withinTolerance ? 'disabled' : ''}></textarea>
+                        <label for="fineObservations">💬 Observações</label>
+                        <textarea id="fineObservations" rows="3" ${withinTolerance ? 'disabled' : ''} placeholder="Adicione detalhes relevantes (opcional)" style="resize: vertical;"></textarea>
                     </div>
                 </form>
                 
@@ -331,7 +342,8 @@ const UI = {
             content.innerHTML = `
                 <div class="empty-state">
                     <div class="empty-state-icon">📋</div>
-                    <div class="empty-state-text">Nenhuma coima emitida</div>
+                    <div class="empty-state-text">Sem coimas registadas</div>
+                    <p style="color: var(--color-grey); margin-top: var(--spacing-sm); font-size: var(--font-size-sm);">As coimas emitidas aparecerão aqui</p>
                 </div>
             `;
             return;
