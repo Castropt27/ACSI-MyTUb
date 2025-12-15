@@ -48,7 +48,7 @@ services:
     build:
       context: ./consumer
     container_name: sensor-api
-    command: python api.py
+    command: python backend_api.py
     ports:
       - "8000:8000"
     environment:
@@ -57,6 +57,7 @@ services:
       DB_NAME: sensor_data
       DB_USER: backend
       DB_PASSWORD: backend123
+      KAFKA_BOOTSTRAP_SERVERS: 192.168.21.227:9093
       PYTHONUNBUFFERED: 1
     depends_on:
       postgres:

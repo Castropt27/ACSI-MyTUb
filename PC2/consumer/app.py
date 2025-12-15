@@ -69,18 +69,35 @@ def main():
     # Connect to database
     db_conn = get_db_connection()
     
-    # Connect to Kafka
-    consumer = KafkaConsumer(
-        topic,
-        bootstrap_servers=bootstrap,
-        group_id=group_id,
-        auto_offset_reset=auto_reset,
-        enable_auto_commit=True,
-        value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-    )
+    # Try to connect to Kafka with retry logic
+    consumer = None
+    max_retries = 5
+    retry_delay = 10
     
-    print(f"🔄 Listening on {topic} @ {bootstrap} (group={group_id})...")
-    print(f"💾 Saving data to PostgreSQL database: {db_config['database']}")
+    for attempt in range(max_retries):
+        try:
+            consumer = KafkaConsumer(
+                topic,
+                bootstrap_servers=bootstrap,
+                group_id=group_id,
+                auto_offset_reset=auto_reset,
+                enable_auto_commit=True,
+                value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+            )
+            print(f"🔄 Listening on {topic} @ {bootstrap} (group={group_id})...")
+            print(f"💾 Saving data to PostgreSQL database: {db_config['database']}")
+            break
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"⚠️ Kafka connection attempt {attempt + 1} failed: {e}")
+                print(f"⏳ Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                print(f"❌ Failed to connect to Kafka after {max_retries} attempts")
+                print(f"💡 Make sure PC1 Kafka is running at {bootstrap}")
+                print(f"⏸️ Consumer will exit. Database and API will continue working.")
+                db_conn.close()
+                return
     
     message_count = 0
     
@@ -103,7 +120,8 @@ def main():
     except KeyboardInterrupt:
         print("\n🛑 Shutting down consumer...")
     finally:
-        consumer.close()
+        if consumer:
+            consumer.close()
         db_conn.close()
         print(f"📊 Total messages processed: {message_count}")
 
