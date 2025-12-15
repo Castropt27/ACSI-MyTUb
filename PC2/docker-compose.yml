@@ -1,0 +1,87 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres-db
+    environment:
+      POSTGRES_DB: sensor_data
+      POSTGRES_USER: backend
+      POSTGRES_PASSWORD: backend123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U backend -d sensor_data"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend-network
+
+  consumer:
+    build:
+      context: ./consumer
+    container_name: kafka-consumer
+    environment:
+      BOOTSTRAP_SERVERS: 192.168.21.227:9093
+      TOPIC: sensor.raw
+      GROUP_ID: kubik-consumer
+      AUTO_OFFSET_RESET: earliest
+      PYTHONUNBUFFERED: 1
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: sensor_data
+      DB_USER: backend
+      DB_PASSWORD: backend123
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend-network
+    tty: true
+    stdin_open: true
+
+  backend-api:
+    build:
+      context: ./consumer
+    container_name: sensor-api
+    command: python api.py
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: sensor_data
+      DB_USER: backend
+      DB_PASSWORD: backend123
+      PYTHONUNBUFFERED: 1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend-network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: pc1
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: 192.168.21.227:9093
+      KAFKA_CLUSTERS_0_ZOOKEEPER: pc-kafka:2181
+    extra_hosts:
+      - "pc-kafka:192.168.21.227"
+    restart: unless-stopped
+    networks:
+      - backend-network
+
+volumes:
+  postgres_data:
+
+networks:
+  backend-network:
+    driver: bridge
