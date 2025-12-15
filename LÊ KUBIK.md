@@ -84,10 +84,9 @@ Adiciona ao teu ficheiro hosts:
 **Linux/Mac**: `/etc/hosts`
 
 ```
-<IP_DO_MEU_PC>   pc-kafka
+192.168.1.214   pc-kafka
 ```
-
-> Pede-me o IP ou descobre com `ping` na rede local.
+> Use o IP que encontrou no `ipconfig` (substitua se mudar).
 
 ### 2. Testar conectividade
 
@@ -171,8 +170,8 @@ http://pc-kafka:8080
 
 ## ✅ Checklist
 
-- [ ] Configurei `pc-kafka` no ficheiro hosts
-- [ ] Consigo fazer ping para `pc-kafka`
+- [x] Configurei `pc-kafka` no ficheiro hosts
+- [x] Consigo fazer ping para `pc-kafka`
 - [ ] (Opcional) Acedi ao Kafka UI e vi mensagens em `sensor.raw`
 - [ ] Implementei consumer com `bootstrap-server: pc-kafka:9092`
 - [ ] Configurei `group-id` único
@@ -187,6 +186,21 @@ http://pc-kafka:8080
 | "Connection refused" | Verifica ficheiro hosts e se Kafka está up (`docker ps`) |
 | "Topic does not exist" | Envia uma mensagem teste ou pede-me para criar o tópico |
 | Consumer não recebe | Confirma `auto.offset.reset='earliest'` e vê Kafka UI |
+
+---
+
+## 🚀 Teste rápido no PC2
+
+1. Confirma ping: `ping pc-kafka` (já ok).
+2. Se tens Kafka CLI:  
+   ```bash
+   kafka-console-consumer --bootstrap-server pc-kafka:9092 --topic sensor.raw --from-beginning
+   ```
+   Vê mensagens a chegarem; se não aparecer nada, espera alguns segundos e confirma no Kafka UI.
+3. Sem CLI, usa o exemplo Python acima:
+   - Instala: `pip install kafka-python`
+   - Corre o script (secção "Código de Exemplo") e verifica prints das mensagens.
+4. Debug opcional: abre `http://pc-kafka:8080`, verifica o tópico `sensor.raw` em tempo real.
 
 ---
 
