@@ -26,8 +26,7 @@ def get_kafka_producer():
         try:
             producer = KafkaProducer(
                 bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-                value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-                api_version=(0, 10, 1)
+                value_serializer=lambda v: json.dumps(v).encode('utf-8')
             )
             logger.info(f"Kafka producer initialized successfully. Bootstrap servers: {KAFKA_BOOTSTRAP_SERVERS}")
         except Exception as e:
@@ -82,6 +81,8 @@ async def ingest_sensor_data(request: Request):
     """
     try:
         # Parse incoming JSON
+        raw_body = await request.body()
+        logger.info(f"Raw body received: {raw_body}")
         data = await request.json()
         logger.info(f"Received data from ZIG SIM: {json.dumps(data)}")
         
@@ -128,7 +129,9 @@ async def ingest_sensor_data(request: Request):
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
         logger.error(f"Unexpected error: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
 
 @app.get("/health")
