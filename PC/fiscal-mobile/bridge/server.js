@@ -87,7 +87,7 @@ async function start() {
         console.log(`📡 Kafka Brokers: ${KAFKA_BROKERS.join(', ')}`);
         console.log(`📋 Topic: ${KAFKA_TOPIC}`);
         console.log(`🔌 WebSocket Port: ${WS_PORT}`);
-        console.log(`🅿️  Simulating ${NUM_SPOTS} parking spots`);
+        console.log(`🅿️  Mapping sensor.raw → Spot 1 (Mercado de Braga - Lugar 1)`);
 
         // Connect to Kafka
         await consumer.connect();
@@ -110,8 +110,8 @@ async function start() {
                     // Extract fields
                     const { ocupado, timestamp } = sensorData;
 
-                    // Map to a specific spot (round-robin)
-                    const spotId = getNextSpotId();
+                    // Map directly to Spot 1 (Lugar 1 - Mercado de Braga)
+                    const spotId = "1";
 
                     // Determine state
                     let state = ocupado ? 'occupied' : 'free';
