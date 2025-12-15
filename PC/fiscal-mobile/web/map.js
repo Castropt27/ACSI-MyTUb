@@ -12,8 +12,8 @@ const MapModule = {
      * Initialize the Leaflet map
      */
     init(containerId = 'mapContainer') {
-        // Create map centered on Lisboa
-        this.map = L.map(containerId).setView([38.7223, -9.1393], 13);
+        // Create map centered on Mercado de Braga (PC3)
+        this.map = L.map(containerId).setView([41.553863, -8.427441], 19);
 
         // Add OpenStreetMap tiles
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -53,8 +53,7 @@ const MapModule = {
                 .addTo(this.map)
                 .bindPopup('A sua localização');
 
-            // Center map on fiscal position
-            this.map.setView([position.lat, position.lng], 15);
+            // Don't recenter map - keep focused on parking spots
 
         } catch (error) {
             console.warn('Não foi possível obter localização:', error);
