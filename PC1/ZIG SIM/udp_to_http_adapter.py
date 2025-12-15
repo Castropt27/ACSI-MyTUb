@@ -38,8 +38,10 @@ def main():
     logger.info(f"✅ UDP Adapter ready! Listening on port {UDP_PORT}")
     logger.info(f"📤 Will forward to: {HTTP_GATEWAY_URL}")
     logger.info("Waiting for ZIG SIM data...")
+    logger.info("💡 Modo: Apenas mostrar mudanças de estado\n")
     
     message_count = 0
+    last_state = None  # Track last sensor state
     
     while True:
         try:
@@ -49,17 +51,29 @@ def main():
             
             # Decode the data
             raw_data = data.decode('utf-8')
-            logger.info(f"\n{'='*60}")
-            logger.info(f"📨 Message #{message_count} from {addr[0]}:{addr[1]}")
-            logger.info(f"📥 Raw UDP data ({len(raw_data)} bytes):")
-            logger.info(raw_data)
             
             # Try to parse as JSON
             try:
                 json_data = json.loads(raw_data)
-                logger.info("✅ Valid JSON received")
                 
-                # Forward to HTTP gateway
+                # Extract sensor state
+                try:
+                    current_state = json_data["sensordata"]["proximitymonitor"]["proximitymonitor"]
+                    
+                    # Only log if state changed
+                    if current_state != last_state:
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        if current_state:
+                            logger.info(f"� [{timestamp}] SENSOR ATIVADO - Lugar Ocupado!")
+                        else:
+                            logger.info(f"🟢 [{timestamp}] SENSOR LIVRE - Lugar Livre!")
+                        
+                        last_state = current_state
+                    
+                except KeyError:
+                    logger.warning(f"⚠️ JSON sem campo de sensor esperado")
+                
+                # Forward to HTTP gateway (always, even if state didn't change)
                 try:
                     response = requests.post(
                         HTTP_GATEWAY_URL,
@@ -67,10 +81,7 @@ def main():
                         timeout=5
                     )
                     
-                    if response.status_code == 200:
-                        logger.info(f"✅ Forwarded to gateway successfully")
-                        logger.info(f"📤 Gateway response: {response.json()}")
-                    else:
+                    if response.status_code != 200:
                         logger.warning(f"⚠️ Gateway returned status {response.status_code}")
                         logger.warning(f"Response: {response.text}")
                         
