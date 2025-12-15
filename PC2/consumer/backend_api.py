@@ -113,12 +113,15 @@ class FineCreate(BaseModel):
     spot_id: str
     fiscal_id: str
     fiscal_name: str
+    license_plate: str
     reason: str
     amount: float
     gps_lat: Optional[float] = None
     gps_lng: Optional[float] = None
     location_address: Optional[str] = None
-    photo_base64: Optional[str] = None
+    photo_base64: Optional[str] = None  # primary photo (kept for compatibility)
+    photos: Optional[list[str]] = None  # multiple photos (base64 or URLs)
+    notes: Optional[str] = None
 
 class FineUpdate(BaseModel):
     status: str = Field(..., pattern="^(Emitida|Notificada|Paga|Em Recurso|Anulada)$")
@@ -507,18 +510,26 @@ async def get_all_spots_status():
 
 @app.get("/api/fiscal/irregularities")
 async def get_irregularities():
-    """List spots with irregularities (occupied >5 min without valid session) - FISCAL"""
+    """List spots with irregularities (occupied >30s without valid session) - FISCAL"""
     conn = get_db_connection()
     try:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("""
             SELECT * FROM irregularities
-            WHERE is_irregular = true AND minutes_occupied > 5
+            WHERE is_irregular = true AND minutes_occupied > 0.5 -- 0.5 min = 30s
             ORDER BY minutes_occupied DESC
         """)
         
         irregularities = cursor.fetchall()
         cursor.close()
+        
+        # Broadcast irregularities to all connected fiscal clients
+        await manager.broadcast({
+            'type': 'IRREGULARITIES_UPDATE',
+            'timestamp': datetime.utcnow().isoformat(),
+            'total': len(irregularities),
+            'irregularities': [dict(i) for i in irregularities]
+        })
         
         return {
             "timestamp": datetime.utcnow().isoformat(),
@@ -611,14 +622,26 @@ async def create_fine(fine: FineCreate):
         
         cursor.execute("""
             INSERT INTO fines 
-            (fine_id, spot_id, fiscal_id, fiscal_name, issue_timestamp, status, 
-             reason, amount, photo_url, gps_lat, gps_lng, location_address, history)
-            VALUES (%s, %s, %s, %s, %s, 'Emitida', %s, %s, %s, %s, %s, %s, %s)
+            (fine_id, spot_id, fiscal_id, fiscal_name, license_plate, issue_timestamp, status, 
+             reason, amount, photo_url, photos, notes, gps_lat, gps_lng, location_address, history)
+            VALUES (%s, %s, %s, %s, %s, %s, 'Emitida', %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *
         """, (
-            fine_id, fine.spot_id, fine.fiscal_id, fine.fiscal_name, 
-            issue_timestamp, fine.reason, fine.amount, fine.photo_base64,
-            fine.gps_lat, fine.gps_lng, fine.location_address, json.dumps(history)
+            fine_id,
+            fine.spot_id,
+            fine.fiscal_id,
+            fine.fiscal_name,
+            fine.license_plate,
+            issue_timestamp,
+            fine.reason,
+            fine.amount,
+            fine.photo_base64,
+            json.dumps(fine.photos) if fine.photos else None,
+            fine.notes,
+            fine.gps_lat,
+            fine.gps_lng,
+            fine.location_address,
+            json.dumps(history)
         ))
         
         new_fine = cursor.fetchone()
@@ -644,6 +667,18 @@ async def create_fine(fine: FineCreate):
         await manager.broadcast({
             'type': 'FINE_CREATED',
             'data': dict(new_fine)
+        })
+        
+        # Send notification to client (if available)
+        await manager.broadcast({
+            'type': 'FINE_NOTIFICATION',
+            'event': 'FINE_ISSUED',
+            'fine_id': fine_id,
+            'spot_id': fine.spot_id,
+            'amount': fine.amount,
+            'reason': fine.reason,
+            'timestamp': issue_timestamp.isoformat(),
+            'message': f'Coima emitida: {fine.reason}. Valor: €{fine.amount}'
         })
         
         logger.info(f"✅ Fine created: {fine_id} for spot {fine.spot_id}")
@@ -820,7 +855,75 @@ async def get_all_fines(status: Optional[str] = None, limit: int = 100):
         conn.close()
 
 # ============================================================================
-# WEBSOCKET ENDPOINT
+# CLIENT ENDPOINTS - NOTIFICATIONS
+# ============================================================================
+
+@app.get("/api/client/{user_name}/notifications")
+async def get_client_notifications(user_name: str):
+    """Get active notifications for a client (session expiry, fines)"""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        notifications = []
+        
+        # Check for expired sessions
+        cursor.execute("""
+            SELECT session_id, spot_id, end_time 
+            FROM parking_sessions 
+            WHERE user_name = %s AND status = 'ACTIVE' AND end_time <= NOW()
+        """, (user_name,))
+        
+        expired_sessions = cursor.fetchall()
+        for session in expired_sessions:
+            notifications.append({
+                'type': 'SESSION_EXPIRED',
+                'title': '⏰ Sessão Expirada',
+                'message': f'Sua sessão no lugar {session["spot_id"]} expirou às {session["end_time"]}',
+                'session_id': session['session_id'],
+                'timestamp': datetime.utcnow().isoformat(),
+                'priority': 'high'
+            })
+        
+        # Check for fines issued
+        cursor.execute("""
+            SELECT fine_id, spot_id, reason, amount, issue_timestamp
+            FROM fines 
+            WHERE status = 'Emitida' 
+            ORDER BY issue_timestamp DESC 
+            LIMIT 10
+        """)
+        
+        fines = cursor.fetchall()
+        for fine in fines:
+            notifications.append({
+                'type': 'FINE_ISSUED',
+                'title': '⚠️ Coima Emitida',
+                'message': f'Coima emitida no lugar {fine["spot_id"]}: {fine["reason"]} (€{fine["amount"]})',
+                'fine_id': fine['fine_id'],
+                'amount': float(fine['amount']),
+                'timestamp': fine['issue_timestamp'].isoformat(),
+                'priority': 'critical'
+            })
+        
+        cursor.close()
+        
+        return {
+            'user_name': user_name,
+            'total_notifications': len(notifications),
+            'notifications': notifications
+        }
+    finally:
+        conn.close()
+
+@app.post("/api/client/{user_name}/notifications/acknowledge")
+async def acknowledge_notification(user_name: str, notification_id: str):
+    """Mark notification as read"""
+    return {
+        'acknowledged': True,
+        'notification_id': notification_id,
+        'timestamp': datetime.utcnow().isoformat()
+    }
+
 # ============================================================================
 
 @app.websocket("/ws")
