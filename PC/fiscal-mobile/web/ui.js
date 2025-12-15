@@ -134,9 +134,9 @@ const UI = {
         const irreg = window.appState.irregularities[spotId];
         const fiscal = JSON.parse(localStorage.getItem('fiscal'));
 
-        // Check tolerance
-        const minutes = Math.floor(irreg.duration / 60000);
-        const withinTolerance = minutes <= 5;
+        // Check tolerance (30 seconds)
+        const seconds = Math.floor(irreg.duration / 1000);
+        const withinTolerance = seconds <= 30;
 
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
@@ -150,8 +150,8 @@ const UI = {
                 <form id="fineForm" class="modal-body">
                     ${withinTolerance ? `
                         <div style="background: var(--gradient-success); color: white; padding: var(--spacing-md); border-radius: var(--border-radius-md); margin-bottom: var(--spacing-md); text-align: center; font-weight: 600;">
-                            ✋ Dentro da tolerância (${minutes} min)<br>
-                            <small style="opacity: 0.9;">Necessário >5 min para multar</small>
+                            ✋ Dentro da tolerância (${seconds}s)<br>
+                            <small style="opacity: 0.9;">Necessário >30s para multar</small>
                         </div>
                     ` : ''}
                     
@@ -311,8 +311,11 @@ const UI = {
                 history: []
             };
 
-            // Save fine
-            API.saveFine(fine);
+            // Save fine (async)
+            const spot = window.appState.spots[spotId];
+            fine.rua = spot?.rua || `Lugar ${spotId}`;
+
+            await API.saveFine(fine);
 
             // Remove irregularity
             delete window.appState.irregularities[spotId];
@@ -334,9 +337,12 @@ const UI = {
     /**
      * Render Coimas Tab
      */
-    renderCoimasTab() {
+    async renderCoimasTab() {
         const content = document.getElementById('mainContent');
-        const fines = API.getFines();
+        const fiscal = JSON.parse(localStorage.getItem('fiscal'));
+
+        // Load fines from backend
+        const fines = await API.getFines(fiscal.id);
 
         if (fines.length === 0) {
             content.innerHTML = `
@@ -388,8 +394,9 @@ const UI = {
     /**
      * Show fine detail modal
      */
-    showFineDetail(fineId) {
-        const fines = API.getFines();
+    async showFineDetail(fineId) {
+        const fiscal = JSON.parse(localStorage.getItem('fiscal'));
+        const fines = await API.getFines(fiscal.id);
         const fine = fines.find(f => f.fineId === fineId);
 
         if (!fine) return;
@@ -452,9 +459,9 @@ const UI = {
     /**
      * Update fine status
      */
-    updateFineStatus(fineId, newStatus) {
+    async updateFineStatus(fineId, newStatus) {
         try {
-            API.updateFine(fineId, { status: newStatus });
+            await API.updateFine(fineId, { status: newStatus });
             UI.showToast(`Status alterado para "${newStatus}"`, 'success');
 
             // Close modal and refresh
