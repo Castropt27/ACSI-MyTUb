@@ -19,6 +19,9 @@ KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "sensor.raw")
 # Initialize Kafka producer
 producer = None
 
+# Track last sensor state to detect changes
+last_sensor_state = None
+
 def get_kafka_producer():
     """Initialize Kafka producer with retry logic"""
     global producer
@@ -60,6 +63,7 @@ def convert_timestamp(raw_timestamp: str) -> str:
 async def ingest_sensor_data(request: Request):
     """
     Receive sensor data from ZIG SIM, transform it, and send to Kafka.
+    ONLY sends to Kafka when state changes (to avoid flooding the topic).
     
     Expected input format:
     {
@@ -79,6 +83,8 @@ async def ingest_sensor_data(request: Request):
       "timestamp": "2025-12-11T19:22:06.190Z"
     }
     """
+    global last_sensor_state
+    
     try:
         # Parse incoming JSON
         raw_body = await request.body()
@@ -104,25 +110,37 @@ async def ingest_sensor_data(request: Request):
             "timestamp": iso_timestamp
         }
         
-        logger.info(f"Transformed data: {json.dumps(output)}")
+        # Check if state changed
+        state_changed = (last_sensor_state != ocupado)
         
-        # Send to Kafka
-        try:
-            kafka_producer = get_kafka_producer()
-            future = kafka_producer.send(KAFKA_TOPIC, value=output)
-            # Wait for confirmation (with timeout)
-            record_metadata = future.get(timeout=10)
-            logger.info(
-                f"Message sent to Kafka topic '{KAFKA_TOPIC}' "
-                f"[partition: {record_metadata.partition}, offset: {record_metadata.offset}]"
-            )
-        except Exception as kafka_error:
-            logger.error(f"Failed to send message to Kafka: {kafka_error}")
-            raise HTTPException(status_code=500, detail=f"Failed to send to Kafka: {kafka_error}")
+        if state_changed:
+            logger.info(f"🔄 STATE CHANGE DETECTED: {last_sensor_state} -> {ocupado}")
+            logger.info(f"Transformed data: {json.dumps(output)}")
+            
+            # Send to Kafka only on state change
+            try:
+                kafka_producer = get_kafka_producer()
+                future = kafka_producer.send(KAFKA_TOPIC, value=output)
+                # Wait for confirmation (with timeout)
+                record_metadata = future.get(timeout=10)
+                logger.info(
+                    f"✅ Message sent to Kafka topic '{KAFKA_TOPIC}' "
+                    f"[partition: {record_metadata.partition}, offset: {record_metadata.offset}]"
+                )
+                
+                # Update last state
+                last_sensor_state = ocupado
+                
+            except Exception as kafka_error:
+                logger.error(f"Failed to send message to Kafka: {kafka_error}")
+                raise HTTPException(status_code=500, detail=f"Failed to send to Kafka: {kafka_error}")
+        else:
+            logger.info(f"ℹ️ No state change (still {ocupado}), skipping Kafka send")
         
         # Return success response
         return {
             "status": "ok",
+            "state_changed": state_changed,
             "received": output
         }
         
@@ -140,13 +158,15 @@ async def health_check():
     return {
         "status": "healthy",
         "kafka_bootstrap": KAFKA_BOOTSTRAP_SERVERS,
-        "kafka_topic": KAFKA_TOPIC
+        "kafka_topic": KAFKA_TOPIC,
+        "last_sensor_state": last_sensor_state
     }
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize Kafka producer on startup"""
     logger.info("Starting sensor-gateway service...")
+    logger.info("🔍 Mode: Send to Kafka ONLY on state changes")
     try:
         get_kafka_producer()
         logger.info("Sensor-gateway ready!")
