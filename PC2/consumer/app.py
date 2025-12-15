@@ -1,14 +1,36 @@
 import json
 import os
-from kafka import KafkaConsumer
+from kafka import KafkaConsumer, KafkaProducer
 import psycopg2
 from datetime import datetime
 import time
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 bootstrap = os.getenv("BOOTSTRAP_SERVERS", "pc-kafka:9092")
 topic = os.getenv("TOPIC", "sensor.raw")
 group_id = os.getenv("GROUP_ID", "kubik-consumer")
 auto_reset = os.getenv("AUTO_OFFSET_RESET", "earliest")
+
+# Kafka producer
+kafka_producer = None
+
+def get_kafka_producer():
+    """Initialize Kafka producer for notifications"""
+    global kafka_producer
+    if kafka_producer is None:
+        try:
+            kafka_producer = KafkaProducer(
+                bootstrap_servers=bootstrap,
+                value_serializer=lambda v: json.dumps(v).encode('utf-8')
+            )
+            logger.info(f"✅ Kafka producer initialized")
+        except Exception as e:
+            logger.warning(f"⚠️ Kafka producer failed: {e}")
+    return kafka_producer
 
 # Database configuration
 db_config = {
@@ -59,9 +81,41 @@ def save_to_database(conn, sensor_data):
         
         conn.commit()
         cursor.close()
+        
+        # Check for irregularities and publish notification
+        spot_id = str(sensor_data.get('id'))
+        is_occupied = sensor_data.get('ocupado')
+        
+        if is_occupied:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM active_sessions
+                WHERE spot_id = %s AND actual_status = 'ACTIVE'
+                LIMIT 1
+            """, (spot_id,))
+            
+            active_session = cursor.fetchone()
+            cursor.close()
+            
+            # If occupied without valid session, publish irregularity notification
+            if not active_session:
+                producer = get_kafka_producer()
+                if producer:
+                    try:
+                        producer.send('notifications.irregularities', {
+                            'type': 'IRREGULARITY_DETECTED',
+                            'spot_id': spot_id,
+                            'ocupado': True,
+                            'timestamp': datetime.utcnow().isoformat(),
+                            'message': f'⚠️ Lugar {spot_id} ocupado sem sessão válida!'
+                        })
+                        logger.info(f"📢 Irregularity notification sent for spot {spot_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to publish irregularity: {e}")
+        
         return True
     except Exception as e:
-        print(f"❌ Error saving to database: {e}")
+        logger.error(f"Error saving to database: {e}")
         conn.rollback()
         return False
 
