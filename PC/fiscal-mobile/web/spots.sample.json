@@ -1,0 +1,72 @@
+[
+    {
+        "spotId": "P001",
+        "rua": "Rua Augusta",
+        "lat": 38.7091,
+        "lng": -9.1364,
+        "zone": "baixa"
+    },
+    {
+        "spotId": "P002",
+        "rua": "Rua da Prata",
+        "lat": 38.7105,
+        "lng": -9.1368,
+        "zone": "baixa"
+    },
+    {
+        "spotId": "P003",
+        "rua": "Praça do Comércio",
+        "lat": 38.7077,
+        "lng": -9.1365,
+        "zone": "baixa"
+    },
+    {
+        "spotId": "P004",
+        "rua": "Rua Garrett",
+        "lat": 38.7106,
+        "lng": -9.1416,
+        "zone": "chiado"
+    },
+    {
+        "spotId": "P005",
+        "rua": "Largo do Carmo",
+        "lat": 38.7118,
+        "lng": -9.1402,
+        "zone": "chiado"
+    },
+    {
+        "spotId": "P006",
+        "rua": "Av. da Liberdade",
+        "lat": 38.7236,
+        "lng": -9.1451,
+        "zone": "avenida"
+    },
+    {
+        "spotId": "P007",
+        "rua": "Praça Marquês de Pombal",
+        "lat": 38.7256,
+        "lng": -9.1508,
+        "zone": "avenida"
+    },
+    {
+        "spotId": "P008",
+        "rua": "Av. Almirante Reis",
+        "lat": 38.7312,
+        "lng": -9.1346,
+        "zone": "arroios"
+    },
+    {
+        "spotId": "P009",
+        "rua": "Rua do Ouro",
+        "lat": 38.7096,
+        "lng": -9.1378,
+        "zone": "baixa"
+    },
+    {
+        "spotId": "P010",
+        "rua": "Rua dos Fanqueiros",
+        "lat": 38.7115,
+        "lng": -9.1352,
+        "zone": "baixa"
+    }
+]

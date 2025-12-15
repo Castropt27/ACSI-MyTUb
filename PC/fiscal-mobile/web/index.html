@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0066CC">
+    <title>myTUB Fiscal</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" 
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" 
+          crossorigin=""/>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="loginScreen" class="screen" aria-label="Ecrã de login">
+        <div class="login-container">
+            <img src="../assets/logo.png" alt="myTUB Logo" class="logo">
+            <h1>myTUB Fiscal</h1>
+            <p class="subtitle">Agente de Fiscalização</p>
+            
+            <form id="loginForm" aria-label="Formulário de login">
+                <div class="form-group">
+                    <label for="fiscalNome">Nome</label>
+                    <input type="text" id="fiscalNome" required aria-required="true" autocomplete="name">
+                </div>
+                
+                <div class="form-group">
+                    <label for="fiscalId">ID do Fiscal</label>
+                    <input type="text" id="fiscalId" required aria-required="true" autocomplete="username">
+                </div>
+                
+                <button type="submit" class="btn btn-primary">Entrar</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="appScreen" class="screen hidden">
+        <!-- Header -->
+        <header class="app-header">
+            <img src="../assets/logo.png" alt="myTUB Logo" class="header-logo">
+            <h1 class="header-title">myTUB Fiscal</h1>
+        </header>
+
+        <!-- Content Area (tab content will be injected here) -->
+        <main id="mainContent" class="main-content" role="main">
+            <!-- Tab content dynamically loaded here -->
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav" role="navigation" aria-label="Navegação principal">
+            <button class="nav-btn active" data-tab="mapa" aria-label="Mapa">
+                <span class="nav-icon">🗺️</span>
+                <span class="nav-label">Mapa</span>
+            </button>
+            <button class="nav-btn" data-tab="irregularidades" aria-label="Irregularidades">
+                <span class="nav-icon">⚠️</span>
+                <span class="nav-label">Irregularidades</span>
+            </button>
+            <button class="nav-btn" data-tab="coimas" aria-label="Coimas">
+                <span class="nav-icon">📋</span>
+                <span class="nav-label">Coimas</span>
+            </button>
+            <button class="nav-btn" data-tab="perfil" aria-label="Perfil">
+                <span class="nav-icon">👤</span>
+                <span class="nav-label">Perfil</span>
+            </button>
+        </nav>
+
+        <!-- Toast Notification -->
+        <div id="toast" class="toast hidden" role="alert" aria-live="assertive" aria-atomic="true"></div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" 
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" 
+            crossorigin=""></script>
+    
+    <!-- App Scripts -->
+    <script src="api.js"></script>
+    <script src="map.js"></script>
+    <script src="ui.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
