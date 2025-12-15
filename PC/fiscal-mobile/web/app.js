@@ -47,7 +47,7 @@ window.appRouter = {
  * Initialize WebSocket connection
  */
 function initWebSocket() {
-    const WS_URL = 'ws://localhost:8081';
+    const WS_URL = window.APP_CONFIG?.WS_URL || 'ws://localhost:8081';
 
     console.log('Connecting to WebSocket:', WS_URL);
     ws = new WebSocket(WS_URL);
@@ -62,7 +62,8 @@ function initWebSocket() {
             const data = JSON.parse(event.data);
             console.log('📨 Received from WebSocket:', data);
 
-            handleSensorEvent(data);
+            // Handle different event types from backend
+            handleBackendEvent(data);
         } catch (error) {
             console.error('Error parsing WebSocket message:', error);
         }
@@ -80,71 +81,128 @@ function initWebSocket() {
 }
 
 /**
- * Handle incoming sensor event from WebSocket
+ * Handle incoming events from backend WebSocket
  */
-function handleSensorEvent(event) {
-    const { spotId, state, hasValidSession, timestamp } = event;
+function handleBackendEvent(event) {
+    const { type } = event;
 
-    // Find or create spot
-    if (!window.appState.spots[spotId]) {
-        // Load spot details from sample data
-        fetch('spots.sample.json')
-            .then(res => res.json())
-            .then(spots => {
-                const spotData = spots.find(s => s.spotId === spotId);
-                if (spotData) {
-                    window.appState.spots[spotId] = {
-                        ...spotData,
-                        state,
-                        hasValidSession,
-                        lastUpdate: timestamp
-                    };
-                    updateSpotOnMap(spotId);
-                }
-            })
-            .catch(err => console.error('Error loading spots:', err));
-    } else {
-        // Update existing spot
-        window.appState.spots[spotId].state = state;
-        window.appState.spots[spotId].hasValidSession = hasValidSession;
-        window.appState.spots[spotId].lastUpdate = timestamp;
-        updateSpotOnMap(spotId);
+    switch (type) {
+        case 'IRREGULARITIES_UPDATE':
+            handleIrregularitiesUpdate(event);
+            break;
+
+        case 'FINE_NOTIFICATION':
+            handleFineNotification(event);
+            break;
+
+        case 'SESSION_CREATED':
+        case 'SESSION_EXTENDED':
+        case 'SESSION_ENDED':
+            handleSessionEvent(event);
+            break;
+
+        case 'FINE_CREATED':
+        case 'FINE_UPDATED':
+            handleFineEvent(event);
+            break;
+
+        default:
+            console.warn('Unknown event type:', type);
     }
-
-    // Handle irregularity detection
-    handleIrregularityDetection(spotId, state, hasValidSession, timestamp);
 }
 
 /**
- * Detect and track irregularities
- * LOGIC: Spot is irregular when occupied WITHOUT valid session for >5 min
+ * Handle IRREGULARITIES_UPDATE event
+ * Backend sends list of current irregularities
  */
-function handleIrregularityDetection(spotId, state, hasValidSession, timestamp) {
-    const now = new Date(timestamp).getTime();
+function handleIrregularitiesUpdate(event) {
+    const { irregularities } = event;
 
-    if (state === 'occupied' && !hasValidSession) {
-        // Spot is occupied without payment
+    console.log(`🚨 Irregularities update: ${irregularities.length} irregular spots`);
 
-        if (!window.appState.irregularities[spotId]) {
-            // Start tracking this irregularity
-            window.appState.irregularities[spotId] = {
-                spotId,
-                occupiedSince: now,
-                duration: 0
-            };
-            console.log(`🚨 Tracking irregularity for ${spotId}`);
+    // Clear current irregularities
+    window.appState.irregularities = {};
+
+    // Update with backend data
+    irregularities.forEach(irreg => {
+        window.appState.irregularities[irreg.spot_id] = {
+            spotId: irreg.spot_id,
+            occupiedSince: Date.now() - (irreg.minutes_occupied * 60000),
+            duration: irreg.minutes_occupied * 60000
+        };
+
+        // Show toast for new irregularities (>5 min)
+        if (irreg.minutes_occupied > 5) {
+            UI.showToast(`⚠️ Irregularidade: Lugar ${irreg.spot_id}`, 'error');
         }
-    } else {
-        // Spot is free OR has valid session
-        // Remove irregularity if it exists
-        if (window.appState.irregularities[spotId]) {
-            console.log(`✅ Irregularity resolved for ${spotId}`);
-            delete window.appState.irregularities[spotId];
-        }
+    });
+
+    // Update UI if on irregularidades tab
+    if (window.appRouter.currentTab === 'irregularidades') {
+        UI.renderIrregularidadesTab();
     }
+}
 
-    // Update durations for all irregularities
-    updateIrregularityDurations();
+/**
+ * Handle FINE_NOTIFICATION event
+ */
+function handleFineNotification(event) {
+    const { event: eventType, fine_id, spot_id, amount, message } = event;
+
+    console.log(`💰 Fine notification: ${eventType} for ${spot_id}`);
+
+    // Show toast notification
+    UI.showToast(message || `Coima ${fine_id} - ${eventType}`, 'success');
+
+    // If on coimas tab, refresh the list
+    if (window.appRouter.currentTab === 'coimas') {
+        UI.renderCoimasTab();
+    }
+}
+
+/**
+ * Handle session events (SESSION_CREATED, SESSION_EXTENDED, SESSION_ENDED)
+ */
+function handleSessionEvent(event) {
+    const { type, data } = event;
+    const spotId = data?.spot_id;
+
+    if (!spotId) return;
+
+    console.log(`📊 Session event: ${type} for spot ${spotId}`);
+
+    // Update spot if we have it
+    if (window.appState.spots[spotId]) {
+        // Session created/extended = has valid session now
+        if (type === 'SESSION_CREATED' || type === 'SESSION_EXTENDED') {
+            window.appState.spots[spotId].hasValidSession = true;
+
+            // Remove from irregularities if present
+            if (window.appState.irregularities[spotId]) {
+                delete window.appState.irregularities[spotId];
+                console.log(`✅ Irregularity resolved for ${spotId} (session created)`);
+            }
+        }
+        // Session ended = no valid session
+        else if (type === 'SESSION_ENDED') {
+            window.appState.spots[spotId].hasValidSession = false;
+        }
+
+        // Update map
+        updateSpotOnMap(spotId);
+    }
+}
+
+/**
+ * Handle fine events (FINE_CREATED, FINE_UPDATED)  
+ */
+function handleFineEvent(event) {
+    const { type, data } = event;
+
+    console.log(`📋 Fine event: ${type}`);
+
+    // Just log for now, UI will refresh when tab is opened
+    // Could add badge counter here in the future
 }
 
 /**
@@ -182,32 +240,34 @@ function updateIrregularityDurations() {
 }
 
 /**
- * Load initial spots data
+ * Load initial spots data from backend
  */
 async function loadInitialSpots() {
     try {
-        const response = await fetch('spots.sample.json');
-        const spots = await response.json();
+        console.log('📡 Loading spots from backend...');
 
-        spots.forEach(spot => {
-            window.appState.spots[spot.spotId] = {
-                ...spot,
-                state: 'unknown',
-                hasValidSession: false,
-                lastUpdate: null
-            };
-        });
+        // Try to load from backend first
+        const spots = await API.loadSpots();
 
-        console.log(`✅ Loaded ${spots.length} parking spots`);
-
-        // Update map if it's initialized
-        if (MapModule.map) {
-            Object.values(window.appState.spots).forEach(spot => {
-                MapModule.updateSpotMarker(spot);
+        if (spots && spots.length > 0) {
+            spots.forEach(spot => {
+                window.appState.spots[spot.spotId] = spot;
             });
+
+            console.log(`✅ Loaded ${spots.length} parking spots from backend`);
+
+            // Update map if it's initialized
+            if (MapModule.map) {
+                Object.values(window.appState.spots).forEach(spot => {
+                    MapModule.updateSpotMarker(spot);
+                });
+            }
+        } else {
+            console.warn('⚠️ No spots loaded');
         }
     } catch (error) {
         console.error('Error loading spots:', error);
+        UI.showToast('Erro ao carregar lugares', 'error');
     }
 }
 
