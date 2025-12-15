@@ -44,6 +44,26 @@ services:
     tty: true
     stdin_open: true
 
+  backend-api:
+    build:
+      context: ./consumer
+    container_name: sensor-api
+    command: python api.py
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: sensor_data
+      DB_USER: backend
+      DB_PASSWORD: backend123
+      PYTHONUNBUFFERED: 1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend-network
+
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
