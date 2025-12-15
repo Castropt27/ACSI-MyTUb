@@ -5,13 +5,73 @@ CREATE TABLE IF NOT EXISTS sensor_readings (
     ocupado BOOLEAN NOT NULL,
     timestamp TIMESTAMP NOT NULL,
     received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    raw_data JSONB
+    raw_data JSONB,
+    gps_lat DECIMAL(10, 8),
+    gps_lng DECIMAL(11, 8),
+    rua VARCHAR(255),
+    zone VARCHAR(100)
 );
 
--- Create index for faster queries
+-- Users table (clientes e fiscais)
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE,
+    role VARCHAR(50) NOT NULL, -- 'CLIENTE' or 'FISCAL'
+    fiscal_id VARCHAR(50) UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Parking sessions table
+CREATE TABLE IF NOT EXISTS parking_sessions (
+    id SERIAL PRIMARY KEY,
+    session_id VARCHAR(100) UNIQUE NOT NULL,
+    spot_id VARCHAR(50) NOT NULL,
+    user_id INTEGER REFERENCES users(id),
+    user_name VARCHAR(255),
+    start_time TIMESTAMP NOT NULL,
+    end_time TIMESTAMP NOT NULL,
+    actual_end_time TIMESTAMP,
+    extended_times INTEGER DEFAULT 0,
+    status VARCHAR(50) DEFAULT 'ACTIVE', -- ACTIVE, COMPLETED, CANCELLED
+    amount_paid DECIMAL(10, 2),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Fines table
+CREATE TABLE IF NOT EXISTS fines (
+    id SERIAL PRIMARY KEY,
+    fine_id VARCHAR(100) UNIQUE NOT NULL,
+    spot_id VARCHAR(50) NOT NULL,
+    fiscal_id VARCHAR(50) NOT NULL,
+    fiscal_name VARCHAR(255) NOT NULL,
+    issue_timestamp TIMESTAMP NOT NULL,
+    status VARCHAR(50) DEFAULT 'Emitida', -- Emitida, Notificada, Paga, Em Recurso, Anulada
+    reason TEXT,
+    amount DECIMAL(10, 2),
+    photo_url TEXT,
+    gps_lat DECIMAL(10, 8),
+    gps_lng DECIMAL(11, 8),
+    location_address TEXT,
+    history JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create indexes for faster queries
 CREATE INDEX IF NOT EXISTS idx_sensor_id ON sensor_readings(sensor_id);
-CREATE INDEX IF NOT EXISTS idx_timestamp ON sensor_readings(timestamp);
-CREATE INDEX IF NOT EXISTS idx_received_at ON sensor_readings(received_at);
+CREATE INDEX IF NOT EXISTS idx_sensor_timestamp ON sensor_readings(timestamp);
+CREATE INDEX IF NOT EXISTS idx_sensor_received_at ON sensor_readings(received_at);
+CREATE INDEX IF NOT EXISTS idx_sensor_ocupado ON sensor_readings(ocupado);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_spot_id ON parking_sessions(spot_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_status ON parking_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_sessions_end_time ON parking_sessions(end_time);
+
+CREATE INDEX IF NOT EXISTS idx_fines_spot_id ON fines(spot_id);
+CREATE INDEX IF NOT EXISTS idx_fines_status ON fines(status);
+CREATE INDEX IF NOT EXISTS idx_fines_fiscal_id ON fines(fiscal_id);
 
 -- Create view for latest readings per sensor
 CREATE OR REPLACE VIEW latest_sensor_readings AS
@@ -19,9 +79,47 @@ SELECT DISTINCT ON (sensor_id)
     sensor_id,
     ocupado,
     timestamp,
-    received_at
+    received_at,
+    gps_lat,
+    gps_lng,
+    rua,
+    zone
 FROM sensor_readings
 ORDER BY sensor_id, received_at DESC;
+
+-- View for active sessions
+CREATE OR REPLACE VIEW active_sessions AS
+SELECT 
+    s.*,
+    CASE 
+        WHEN s.end_time < NOW() THEN 'EXPIRED'
+        ELSE 'ACTIVE'
+    END as actual_status
+FROM parking_sessions s
+WHERE s.status = 'ACTIVE';
+
+-- View for irregularities (occupied spots without valid session)
+CREATE OR REPLACE VIEW irregularities AS
+SELECT 
+    sr.sensor_id as spot_id,
+    sr.ocupado,
+    sr.timestamp as occupied_since,
+    sr.gps_lat,
+    sr.gps_lng,
+    sr.rua,
+    sr.zone,
+    EXTRACT(EPOCH FROM (NOW() - sr.timestamp)) / 60 as minutes_occupied,
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 FROM parking_sessions ps 
+            WHERE ps.spot_id = sr.sensor_id 
+            AND ps.status = 'ACTIVE' 
+            AND ps.end_time > NOW()
+        ) THEN false
+        ELSE true
+    END as is_irregular
+FROM latest_sensor_readings sr
+WHERE sr.ocupado = true;
 
 -- Grant permissions
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO backend;
