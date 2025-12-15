@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="pt">
+  <head>
+    <meta charset="UTF-8" />
+    <title>myTUB - Estacionamento</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+
+  <body>
+    <header id="app-header">
+      <div>
+        <h1>
+          <span class="my">my</span><span class="tub">TUB</span>
+          <span class="est">Estacionamento</span>
+        </h1>
+        <span class="subtitle">Praça do Comércio, Braga</span>
+      </div>
+    </header>
+
+    <main id="app-content">
+     
+      <div id="map"></div>
+
+      <div id="bottom-panel">
+        <div>
+          <div class="legend">
+            <span class="dot green"></span><span>Livres</span>
+            <span class="dot red"></span><span>Ocupados</span>
+          </div>
+          <div id="coords">Toque no mapa para obter coordenadas.</div>
+        </div>
+        <button id="refresh-btn">Atualizar</button>
+      </div>
+
+      <div id="place-panel" class="hidden">
+        <div class="place-header">
+          <div>
+            <div id="place-title">Lugar 1</div>
+            <div id="place-status" class="place-status free">Livre</div>
+          </div>
+          <button id="place-close" aria-label="Fechar painel">×</button>
+        </div>
+
+        <div class="place-body">
+          <p><strong>Número do lugar:</strong> <span id="place-number">1</span></p>
+          <p><strong>Estado:</strong> <span id="place-state-text">Livre</span></p>
+        </div>
+
+        <button id="start-session-btn">Criar sessão de estacionamento</button>
+
+        <div id="session-form" class="session-form hidden">
+          <div class="form-row">
+            <label for="matricula-input">Matrícula</label>
+            <input
+              id="matricula-input"
+              type="text"
+              placeholder="AA-00-BB"
+              maxlength="10"
+              autocomplete="off"
+            />
+          </div>
+
+          <div class="form-row">
+            <label for="duracao-input">Duração (minutos)</label>
+            <input
+              id="duracao-input"
+              type="number"
+              min="5"
+              max="480"
+              step="5"
+              placeholder="Ex.: 60"
+            />
+          </div>
+
+          <div class="form-actions">
+            <button id="confirm-session-btn" class="primary">Confirmar sessão</button>
+            <button id="cancel-session-btn" class="secondary">Cancelar</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="payment-screen" class="hidden">
+        <div class="payment-container">
+          <div class="pay-topbar">
+            <h2>myTUB Estacionar</h2>
+          </div>
+
+          <div class="pay-location-row">
+            <span class="loc-icon">📍</span>
+            <span id="pay-location">Praça do Comércio, Braga</span>
+          </div>
+
+          <div class="pay-body">
+            <div class="pay-circle">
+              <div class="pay-circle-inner">
+                <div class="pay-time" id="pay-time-display">00:00</div>
+                <div class="pay-price" id="pay-price-display">0,00 €</div>
+              </div>
+            </div>
+
+            <div class="pay-times">
+              <div class="time-col">
+                <span class="label">Início</span>
+                <span id="pay-start-time" class="time">09:00</span>
+                <div class="date-row">
+                  <span id="pay-start-date" class="date">15/12/2025</span>
+                  <span id="pay-start-weekday" class="weekday-pill">Seg.</span>
+                </div>
+              </div>
+
+              <div class="time-col">
+                <span class="label">Válido até</span>
+                <span id="pay-end-time" class="time">09:50</span>
+                <div class="date-row">
+                  <span id="pay-end-date" class="date">15/12/2025</span>
+                  <span id="pay-end-weekday" class="weekday-pill">Seg.</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="pay-car-row">
+              <span class="car-icon">🚗</span>
+              <span id="pay-plate-text">AA-00-AM</span>
+              <span class="bullet">•</span>
+              <span id="pay-place-text">Lugar 3</span>
+            </div>
+
+            <div class="pay-info">
+              <div><span class="label">Lugar</span><span id="pay-place">-</span></div>
+              <div><span class="label">Matrícula</span><span id="pay-plate">-</span></div>
+              <div><span class="label">Duração</span><span id="pay-duration">- min</span></div>
+            </div>
+          </div>
+
+          <div class="pay-footer">
+            <button id="payment-cancel-btn" class="btn-secondary">Cancelar</button>
+            <button id="payment-choose-method-btn" class="btn-primary">
+              Escolher método de pagamento
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="payment-method-modal" class="hidden">
+        <div class="method-card" role="dialog" aria-modal="true" aria-label="Métodos de pagamento">
+          <div class="method-card-header">
+            <h3>Escolher método de pagamento</h3>
+            <button id="close-method-modal" aria-label="Fechar">×</button>
+          </div>
+
+          <div class="method-list">
+            <button class="method-option" data-method="Apple Pay">Apple Pay</button>
+            <button class="method-option" data-method="MB WAY">MB WAY</button>
+            <button class="method-option" data-method="Cartão bancário">Cartão bancário</button>
+            <button class="method-option" data-method="Parquímetro">Parquímetro</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <script src="app.js"></script>
+
+  <script async
+  src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDDpZRuEZyu8n_G8HUlg6g5kbnM3AFRdiI&callback=initMap">
+</script>
+
+  </body>
+</html>
