@@ -6,8 +6,8 @@ const CONFIG = {
     // Backend API (PC2)
     BACKEND_URL: 'http://192.168.21.17:8000',
 
-    // WebSocket (PC2 Backend)
-    WS_URL: 'ws://192.168.21.17:8000/ws',
+    // WebSocket (Bridge Server - Kafka Consumer)
+    WS_URL: 'ws://localhost:8081',
 
     // Default fine amount
     DEFAULT_FINE_AMOUNT: 50.00,
