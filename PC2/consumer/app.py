@@ -82,36 +82,9 @@ def save_to_database(conn, sensor_data):
         conn.commit()
         cursor.close()
         
-        # Check for irregularities and publish notification
+        # Irregularity detection moved to backend API background task
+        # (publishes to Kafka topic 'infracoes' every 5 seconds when >30s)
         spot_id = str(sensor_data.get('id'))
-        is_occupied = sensor_data.get('ocupado')
-        
-        if is_occupied:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT * FROM active_sessions
-                WHERE spot_id = %s AND actual_status = 'ACTIVE'
-                LIMIT 1
-            """, (spot_id,))
-            
-            active_session = cursor.fetchone()
-            cursor.close()
-            
-            # If occupied without valid session, publish irregularity notification
-            if not active_session:
-                producer = get_kafka_producer()
-                if producer:
-                    try:
-                        producer.send('notifications.irregularities', {
-                            'type': 'IRREGULARITY_DETECTED',
-                            'spot_id': spot_id,
-                            'ocupado': True,
-                            'timestamp': datetime.utcnow().isoformat(),
-                            'message': f'⚠️ Lugar {spot_id} ocupado sem sessão válida!'
-                        })
-                        logger.info(f"📢 Irregularity notification sent for spot {spot_id}")
-                    except Exception as e:
-                        logger.warning(f"Failed to publish irregularity: {e}")
         
         return True
     except Exception as e:
