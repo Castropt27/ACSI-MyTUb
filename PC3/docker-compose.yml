@@ -11,4 +11,3 @@ services:
       - ./WEB:/usr/share/nginx/html:ro
       # mantém o nginx.conf na pasta de configs
       - ./WEB/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-
