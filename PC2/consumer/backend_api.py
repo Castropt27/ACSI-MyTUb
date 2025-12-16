@@ -3,7 +3,7 @@ MyTUB Backend API - Complete REST API for Clients and Fiscals
 Provides endpoints for parking sessions, fines management, and real-time updates
 """
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -68,6 +68,10 @@ def get_db_connection():
     except Exception as e:
         logger.error(f"Database connection error: {e}")
         raise HTTPException(status_code=500, detail="Database connection failed")
+
+# ============================================================================
+# KAFKA BACKGROUND TASKS
+# ============================================================================
 
 sent_irregularity_keys = set()
 
@@ -134,30 +138,6 @@ async def publish_irregularities_loop():
 async def _start_irregularities_loop():
     asyncio.create_task(publish_irregularities_loop())
 
-# WebSocket manager for real-time updates
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: List[WebSocket] = []
-
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-        logger.info(f"📱 WebSocket client connected. Total: {len(self.active_connections)}")
-
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-        logger.info(f"📱 WebSocket client disconnected. Total: {len(self.active_connections)}")
-
-    async def broadcast(self, message: dict):
-        """Broadcast message to all connected clients"""
-        for connection in self.active_connections:
-            try:
-                await connection.send_json(message)
-            except Exception as e:
-                logger.error(f"Error broadcasting to client: {e}")
-
-manager = ConnectionManager()
-
 # ============================================================================
 # MODELS
 # ============================================================================
@@ -184,12 +164,10 @@ class FineCreate(BaseModel):
     license_plate: str
     reason: str
     amount: float
-    gps_lat: Optional[float] = None
-    gps_lng: Optional[float] = None
-    location_address: Optional[str] = None
     photo_base64: Optional[str] = None  # primary photo (kept for compatibility)
     photos: Optional[list[str]] = None  # multiple photos (base64 or URLs)
     notes: Optional[str] = None
+    # gps_lat, gps_lng, location_address removed - fetched from DB by spot_id
 
 class FineUpdate(BaseModel):
     status: str = Field(..., pattern="^(Emitida|Notificada|Paga|Em Recurso|Anulada)$")
@@ -237,8 +215,7 @@ async def system_info():
             "statistics": {
                 "total_readings": readings_count,
                 "active_sessions": active_sessions,
-                "active_fines": active_fines,
-                "websocket_clients": len(manager.active_connections)
+                "active_fines": active_fines
             }
         }
     finally:
@@ -304,12 +281,6 @@ async def create_session(session: SessionCreate):
                 })
             except Exception as e:
                 logger.warning(f"Failed to publish to Kafka: {e}")
-        
-        # Broadcast via WebSocket
-        await manager.broadcast({
-            'type': 'SESSION_CREATED',
-            'data': dict(new_session)
-        })
         
         logger.info(f"✅ Session created: {session_id} for spot {session.spot_id}")
         return new_session
@@ -528,6 +499,72 @@ async def get_user_session_history(user_name: str, limit: int = 50):
 # FISCAL ENDPOINTS - IRREGULARITIES & VERIFICATION
 # ============================================================================
 
+@app.get("/api/spots")
+async def get_all_spots():
+    """List all spots with current status (CLIENT view)."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            """
+            SELECT 
+                sr.sensor_id as spot_id,
+                sr.ocupado,
+                sr.timestamp as last_update,
+                sr.gps_lat,
+                sr.gps_lng,
+                sr.rua,
+                sr.zone,
+                CASE 
+                    WHEN EXISTS (
+                        SELECT 1 FROM parking_sessions ps 
+                        WHERE ps.spot_id = sr.sensor_id 
+                        AND ps.status = 'ACTIVE' 
+                        AND ps.end_time > NOW()
+                    ) THEN true
+                    ELSE false
+                END as has_valid_session,
+                (
+                    SELECT session_id FROM parking_sessions ps 
+                    WHERE ps.spot_id = sr.sensor_id 
+                    AND ps.status = 'ACTIVE' 
+                    AND ps.end_time > NOW()
+                    ORDER BY start_time DESC
+                    LIMIT 1
+                ) as active_session_id,
+                EXTRACT(EPOCH FROM (NOW() - sr.timestamp)) / 60 as minutes_since_change
+            FROM latest_sensor_readings sr
+            ORDER BY sr.sensor_id
+            """
+        )
+
+        rows = cursor.fetchall()
+        cursor.close()
+
+        # Simplified client-friendly payload
+        spots = [
+            {
+                "spot_id": row["spot_id"],
+                "ocupado": row["ocupado"],
+                "minutes_since_change": float(row["minutes_since_change"]) if row["minutes_since_change"] is not None else None,
+                "gps_lat": float(row["gps_lat"]) if row["gps_lat"] is not None else None,
+                "gps_lng": float(row["gps_lng"]) if row["gps_lng"] is not None else None,
+                "rua": row["rua"],
+                "zone": row["zone"],
+                "has_valid_session": bool(row["has_valid_session"]),
+                "active_session_id": row["active_session_id"]
+            }
+            for row in rows
+        ]
+
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "total_spots": len(spots),
+            "spots": spots
+        }
+    finally:
+        conn.close()
+
 @app.get("/api/fiscal/spots")
 async def get_all_spots_status():
     """Get status of all parking spots (FISCAL)"""
@@ -651,6 +688,22 @@ async def create_fine(fine: FineCreate):
         fine_id = f"F{uuid.uuid4().hex[:12].upper()}"
         issue_timestamp = datetime.utcnow()
         
+        # Get spot location from database
+        cursor.execute("""
+            SELECT gps_lat, gps_lng, rua, zone
+            FROM latest_sensor_readings
+            WHERE sensor_id = %s
+        """, (fine.spot_id,))
+        
+        spot_data = cursor.fetchone()
+        if not spot_data:
+            raise HTTPException(status_code=404, detail="Spot not found")
+        
+        # Use spot data from DB, not from request
+        gps_lat = spot_data['gps_lat']
+        gps_lng = spot_data['gps_lng']
+        location_address = spot_data['rua'] or f"Zona {spot_data['zone']}"
+        
         # Create history entry
         history = [{
             "status": "Emitida",
@@ -677,9 +730,9 @@ async def create_fine(fine: FineCreate):
             fine.photo_base64,
             json.dumps(fine.photos) if fine.photos else None,
             fine.notes,
-            fine.gps_lat,
-            fine.gps_lng,
-            fine.location_address,
+            gps_lat,
+            gps_lng,
+            location_address,
             json.dumps(history)
         ))
         
@@ -687,38 +740,25 @@ async def create_fine(fine: FineCreate):
         conn.commit()
         cursor.close()
         
-        # Publish to Kafka
+        # Publish to Kafka (client notification)
         producer = get_kafka_producer()
         if producer:
             try:
-                producer.send('fine.events', {
-                    'event': 'FINE_CREATED',
+                producer.send('client.notifications', {
+                    'type': 'FINE_CREATED',
                     'fine_id': fine_id,
                     'spot_id': fine.spot_id,
+                    'license_plate': fine.license_plate,
                     'fiscal_id': fine.fiscal_id,
+                    'fiscal_name': fine.fiscal_name,
                     'amount': fine.amount,
-                    'timestamp': issue_timestamp.isoformat()
+                    'reason': fine.reason,
+                    'timestamp': issue_timestamp.isoformat(),
+                    'message': f'Coima emitida: {fine.reason}. Valor: €{fine.amount}'
                 })
+                logger.info(f"📢 Fine notification sent to Kafka: {fine_id}")
             except Exception as e:
                 logger.warning(f"Failed to publish to Kafka: {e}")
-        
-        # Broadcast via WebSocket
-        await manager.broadcast({
-            'type': 'FINE_CREATED',
-            'data': dict(new_fine)
-        })
-        
-        # Send notification to client (if available)
-        await manager.broadcast({
-            'type': 'FINE_NOTIFICATION',
-            'event': 'FINE_ISSUED',
-            'fine_id': fine_id,
-            'spot_id': fine.spot_id,
-            'amount': fine.amount,
-            'reason': fine.reason,
-            'timestamp': issue_timestamp.isoformat(),
-            'message': f'Coima emitida: {fine.reason}. Valor: €{fine.amount}'
-        })
         
         logger.info(f"✅ Fine created: {fine_id} for spot {fine.spot_id}")
         return new_fine
@@ -782,25 +822,22 @@ async def update_fine_status(fine_id: str, update: FineUpdate):
         conn.commit()
         cursor.close()
         
-        # Publish to Kafka
+        # Publish to Kafka (client notification if status relevant)
         producer = get_kafka_producer()
-        if producer:
+        if producer and update.status in ['Paga', 'Anulada']:
             try:
-                producer.send('fine.events', {
-                    'event': 'FINE_UPDATED',
+                producer.send('client.notifications', {
+                    'type': 'FINE_UPDATED',
                     'fine_id': fine_id,
+                    'spot_id': updated_fine['spot_id'],
                     'old_status': fine['status'],
                     'new_status': update.status,
-                    'timestamp': datetime.utcnow().isoformat()
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'message': f'Coima {fine_id}: {update.status}'
                 })
+                logger.info(f"📢 Fine update notification sent: {fine_id} → {update.status}")
             except Exception as e:
                 logger.warning(f"Failed to publish to Kafka: {e}")
-        
-        # Broadcast via WebSocket
-        await manager.broadcast({
-            'type': 'FINE_UPDATED',
-            'data': dict(updated_fine)
-        })
         
         logger.info(f"✅ Fine updated: {fine_id} → {update.status}")
         return updated_fine
@@ -833,25 +870,7 @@ async def delete_fine(fine_id: str):
         conn.commit()
         cursor.close()
         
-        # Publish to Kafka
-        producer = get_kafka_producer()
-        if producer:
-            try:
-                producer.send('fine.events', {
-                    'event': 'FINE_DELETED',
-                    'fine_id': fine_id,
-                    'spot_id': fine['spot_id'],
-                    'timestamp': datetime.utcnow().isoformat()
-                })
-            except Exception as e:
-                logger.warning(f"Failed to publish to Kafka: {e}")
-        
-        # Broadcast via WebSocket
-        await manager.broadcast({
-            'type': 'FINE_DELETED',
-            'fine_id': fine_id,
-            'spot_id': fine['spot_id']
-        })
+        # No Kafka notification needed for delete (internal operation)
         
         logger.info(f"✅ Fine deleted: {fine_id}")
         return {
@@ -1017,24 +1036,6 @@ async def acknowledge_notification(user_name: str, notification_id: str):
         'notification_id': notification_id,
         'timestamp': datetime.utcnow().isoformat()
     }
-
-# ============================================================================
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time updates"""
-    await manager.connect(websocket)
-    try:
-        while True:
-            # Keep connection alive and listen for ping/pong
-            data = await websocket.receive_text()
-            if data == "ping":
-                await websocket.send_text("pong")
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        manager.disconnect(websocket)
 
 # ============================================================================
 # STARTUP
