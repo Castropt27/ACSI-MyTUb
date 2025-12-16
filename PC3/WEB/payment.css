@@ -1,0 +1,295 @@
+/* ========================================
+   myTUB PAYMENT INTERFACE
+   Adaptation of Via Verde structure with myTUB Branding
+   ======================================== */
+
+#payment-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #F8F9FA;
+    z-index: 9999;
+    /* Ensure it covers EVERYTHING (Nav is 2000, PlacePanel 2500) */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.via-verde-container {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: var(--spacing-lg);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    background: white;
+    /* Clean background */
+}
+
+/* Header & Title */
+.vv-title {
+    font-size: var(--font-size-xl);
+    font-weight: 700;
+    text-align: center;
+    margin: var(--spacing-md) 0;
+    /* myTUB Blue Gradient Text */
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.location-display {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-lg);
+    font-size: var(--font-size-md);
+    color: var(--color-grey-dark);
+    font-weight: 500;
+}
+
+.pin-icon {
+    font-size: 1.25rem;
+    color: var(--color-danger);
+    /* Red pin for visibility */
+}
+
+/* Map Background Enhancement */
+.map-background {
+    position: absolute;
+    top: 100px;
+    left: 0;
+    right: 0;
+    height: 350px;
+    /* Blue-ish tint overlay on map pattern */
+    background-image: radial-gradient(circle, rgba(21, 101, 192, 0.05) 20%, transparent 20%),
+        radial-gradient(circle, rgba(21, 101, 192, 0.05) 20%, transparent 20%);
+    background-position: 0 0, 25px 25px;
+    background-size: 50px 50px;
+    z-index: 0;
+    pointer-events: none;
+    mask-image: linear-gradient(to bottom, transparent, black 20%, black 80%, transparent);
+    -webkit-mask-image: linear-gradient(to bottom, transparent, black 20%, black 80%, transparent);
+}
+
+/* Circular Timer - myTUB Style */
+.timer-circle {
+    width: 280px;
+    height: 280px;
+    border-radius: 50%;
+    /* Dark Blue instead of Dark Grey */
+    background: linear-gradient(135deg, #1565C0 0%, #0D47A1 100%);
+    border: 8px solid white;
+    /* Enhanced Glow/Fade Effect */
+    box-shadow:
+        0 20px 60px rgba(21, 101, 192, 0.4),
+        0 0 0 1px rgba(21, 101, 192, 0.1);
+    /* Subtle inner light */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+    margin: var(--spacing-xl) auto;
+    position: relative;
+    z-index: 1;
+}
+
+.timer-icon {
+    font-size: 1.5rem;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.timer-display {
+    font-size: 3.5rem;
+    font-weight: 700;
+    color: white;
+    letter-spacing: 2px;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.price-badge {
+    /* White badge with Blue text for contrast against dark circle */
+    background: white;
+    color: #1565C0;
+    font-weight: 800;
+    font-size: var(--font-size-lg);
+    border-radius: 20px;
+    padding: 8px 24px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Session Info Grid */
+.session-info {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-lg);
+    margin: var(--spacing-xl) 0;
+    position: relative;
+    z-index: 1;
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(10px);
+    padding: var(--spacing-md);
+    border-radius: 16px;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.session-col {
+    text-align: center;
+}
+
+.session-label {
+    font-size: var(--font-size-sm);
+    color: var(--color-grey);
+    margin-bottom: var(--spacing-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.session-time {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--color-grey-dark);
+    margin-bottom: var(--spacing-xs);
+    font-variant-numeric: tabular-nums;
+}
+
+.session-date {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-xs);
+    font-size: var(--font-size-sm);
+    color: var(--color-grey);
+}
+
+.weekday-badge {
+    /* myTUB Light Blue */
+    background: #E3F2FD;
+    color: #1565C0;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+/* Plate Display */
+.plate-display {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+    background: #F5F7FA;
+    border-radius: var(--border-radius-md);
+    margin: var(--spacing-lg) 0;
+    border: 1px solid #E3F2FD;
+    position: relative;
+    z-index: 1;
+}
+
+.car-icon {
+    font-size: 1.5rem;
+}
+
+#session-plate-number {
+    font-size: var(--font-size-lg);
+    font-weight: 700;
+    color: var(--color-grey-dark);
+    letter-spacing: 1px;
+}
+
+
+
+/* Action Buttons */
+.action-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-md);
+    margin-top: auto;
+    padding-top: var(--spacing-lg);
+    position: relative;
+    z-index: 1;
+}
+
+.btn-cancel-vv {
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: white;
+    border: 2px solid #E5E7EB;
+    border-radius: var(--border-radius-lg);
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    color: var(--color-grey-dark);
+    cursor: pointer;
+    transition: all var(--transition-normal);
+    min-height: 56px;
+}
+
+.btn-cancel-vv:hover {
+    background: #FFEBEE;
+    /* Light red tint on hover */
+    border-color: #FFCDD2;
+    color: #D32F2F;
+}
+
+.btn-start-vv {
+    padding: var(--spacing-md) var(--spacing-lg);
+    /* myTUB Primary Gradient */
+    background: var(--gradient-primary);
+    border: none;
+    border-radius: var(--border-radius-lg);
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    color: white;
+    /* White text */
+    cursor: pointer;
+    transition: all var(--transition-normal);
+    box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
+    min-height: 56px;
+}
+
+.btn-start-vv:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(33, 150, 243, 0.4);
+    filter: brightness(1.1);
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 480px) {
+    .timer-circle {
+        width: 240px;
+        height: 240px;
+    }
+
+    .timer-display {
+        font-size: 3rem;
+    }
+
+    .session-time {
+        font-size: 1.5rem;
+    }
+
+    .via-verde-container {
+        padding: var(--spacing-md);
+    }
+}
