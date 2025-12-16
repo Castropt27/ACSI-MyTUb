@@ -523,18 +523,30 @@ async def get_irregularities():
         irregularities = cursor.fetchall()
         cursor.close()
         
+        # Convert to JSON-serializable format
+        irregularities_json = []
+        for irreg in irregularities:
+            item = dict(irreg)
+            # Convert datetime fields to ISO strings
+            if 'occupied_since' in item and item['occupied_since']:
+                item['occupied_since'] = item['occupied_since'].isoformat()
+            irregularities_json.append(item)
+        
         # Broadcast irregularities to all connected fiscal clients
-        await manager.broadcast({
-            'type': 'IRREGULARITIES_UPDATE',
-            'timestamp': datetime.utcnow().isoformat(),
-            'total': len(irregularities),
-            'irregularities': [dict(i) for i in irregularities]
-        })
+        try:
+            await manager.broadcast({
+                'type': 'IRREGULARITIES_UPDATE',
+                'timestamp': datetime.utcnow().isoformat(),
+                'total': len(irregularities_json),
+                'irregularities': irregularities_json
+            })
+        except Exception as e:
+            logger.error(f"Broadcast error: {e}")
         
         return {
             "timestamp": datetime.utcnow().isoformat(),
-            "total": len(irregularities),
-            "irregularities": irregularities
+            "total": len(irregularities_json),
+            "irregularities": irregularities_json
         }
     finally:
         conn.close()
@@ -771,6 +783,61 @@ async def update_fine_status(fine_id: str, update: FineUpdate):
     except Exception as e:
         conn.rollback()
         logger.error(f"Error updating fine: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.delete("/api/fines/{fine_id}")
+async def delete_fine(fine_id: str):
+    """Delete a fine (FISCAL)"""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Check if fine exists
+        cursor.execute("SELECT * FROM fines WHERE fine_id = %s", (fine_id,))
+        fine = cursor.fetchone()
+        
+        if not fine:
+            raise HTTPException(status_code=404, detail="Fine not found")
+        
+        # Delete the fine
+        cursor.execute("DELETE FROM fines WHERE fine_id = %s", (fine_id,))
+        conn.commit()
+        cursor.close()
+        
+        # Publish to Kafka
+        producer = get_kafka_producer()
+        if producer:
+            try:
+                producer.send('fine.events', {
+                    'event': 'FINE_DELETED',
+                    'fine_id': fine_id,
+                    'spot_id': fine['spot_id'],
+                    'timestamp': datetime.utcnow().isoformat()
+                })
+            except Exception as e:
+                logger.warning(f"Failed to publish to Kafka: {e}")
+        
+        # Broadcast via WebSocket
+        await manager.broadcast({
+            'type': 'FINE_DELETED',
+            'fine_id': fine_id,
+            'spot_id': fine['spot_id']
+        })
+        
+        logger.info(f"✅ Fine deleted: {fine_id}")
+        return {
+            "message": "Fine deleted successfully",
+            "fine_id": fine_id,
+            "deleted_at": datetime.utcnow().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error deleting fine: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
