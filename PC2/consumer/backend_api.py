@@ -16,6 +16,7 @@ import json
 import uuid
 import base64
 from kafka import KafkaProducer
+import asyncio
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -43,6 +44,8 @@ db_config = {
 # Kafka configuration
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "192.168.21.227:9093")
 kafka_producer = None
+INFRACOES_TOPIC = os.getenv("INFRACOES_TOPIC", "infracoes")
+NOTIF_IRREG_TOPIC = os.getenv("NOTIFICATIONS_IRREGULARITIES_TOPIC", "notifications.irregularities")
 
 def get_kafka_producer():
     """Get or create Kafka producer"""
@@ -65,6 +68,71 @@ def get_db_connection():
     except Exception as e:
         logger.error(f"Database connection error: {e}")
         raise HTTPException(status_code=500, detail="Database connection failed")
+
+sent_irregularity_keys = set()
+
+async def publish_irregularities_loop():
+    """Every 5s, publish irregularities (>30s ocupado sem sessão) to Kafka."""
+    interval_seconds = 5
+    while True:
+        try:
+            conn = get_db_connection()
+            try:
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
+                cursor.execute(
+                    """
+                    SELECT spot_id, occupied_since, minutes_occupied
+                    FROM irregularities
+                    WHERE is_irregular = true AND minutes_occupied > 0.5
+                    ORDER BY minutes_occupied DESC
+                    """
+                )
+                rows = cursor.fetchall()
+                cursor.close()
+            finally:
+                conn.close()
+
+            producer = get_kafka_producer()
+            now_iso = datetime.utcnow().isoformat()
+
+            for row in rows:
+                spot_id = str(row.get('spot_id'))
+                occupied_since = row.get('occupied_since')
+                if isinstance(occupied_since, datetime):
+                    occupied_since_iso = occupied_since.isoformat()
+                else:
+                    occupied_since_iso = occupied_since or None
+
+                key = f"{spot_id}:{occupied_since_iso}"
+                if key in sent_irregularity_keys:
+                    continue
+
+                payload = {
+                    'type': 'IRREGULARITY_DETECTED',
+                    'spot_id': spot_id,
+                    'ocupado': True,
+                    'timestamp': now_iso,
+                    'message': f'⚠️ Lugar {spot_id} ocupado sem sessão válida!'
+                }
+
+                if producer:
+                    try:
+                        producer.send(NOTIF_IRREG_TOPIC, payload)
+                        sent_irregularity_keys.add(key)
+                        logger.info(f"📢 Published irregularity to '{NOTIF_IRREG_TOPIC}': {payload}")
+                    except Exception as e:
+                        logger.warning(f"Failed to publish irregularity to Kafka: {e}")
+                else:
+                    logger.warning("Kafka producer unavailable; skipping irregularity publish")
+
+        except Exception as e:
+            logger.error(f"Irregularities loop error: {e}")
+
+        await asyncio.sleep(interval_seconds)
+
+@app.on_event("startup")
+async def _start_irregularities_loop():
+    asyncio.create_task(publish_irregularities_loop())
 
 # WebSocket manager for real-time updates
 class ConnectionManager:
@@ -508,48 +576,7 @@ async def get_all_spots_status():
     finally:
         conn.close()
 
-@app.get("/api/fiscal/irregularities")
-async def get_irregularities():
-    """List spots with irregularities (occupied >30s without valid session) - FISCAL"""
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("""
-            SELECT * FROM irregularities
-            WHERE is_irregular = true AND minutes_occupied > 0.5 -- 0.5 min = 30s
-            ORDER BY minutes_occupied DESC
-        """)
-        
-        irregularities = cursor.fetchall()
-        cursor.close()
-        
-        # Convert to JSON-serializable format
-        irregularities_json = []
-        for irreg in irregularities:
-            item = dict(irreg)
-            # Convert datetime fields to ISO strings
-            if 'occupied_since' in item and item['occupied_since']:
-                item['occupied_since'] = item['occupied_since'].isoformat()
-            irregularities_json.append(item)
-        
-        # Broadcast irregularities to all connected fiscal clients
-        try:
-            await manager.broadcast({
-                'type': 'IRREGULARITIES_UPDATE',
-                'timestamp': datetime.utcnow().isoformat(),
-                'total': len(irregularities_json),
-                'irregularities': irregularities_json
-            })
-        except Exception as e:
-            logger.error(f"Broadcast error: {e}")
-        
-        return {
-            "timestamp": datetime.utcnow().isoformat(),
-            "total": len(irregularities_json),
-            "irregularities": irregularities_json
-        }
-    finally:
-        conn.close()
+## Irregularities API removed: infractions are now Kafka-only via 'infracoes' topic
 
 @app.get("/api/fiscal/verify/{spot_id}")
 async def verify_spot(spot_id: str):
