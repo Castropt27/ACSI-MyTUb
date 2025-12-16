@@ -4,9 +4,11 @@
 <head>
   <meta charset="UTF-8" />
   <title>myTUB - Estacionamento</title>
+  <link rel="icon" type="image/png" href="logo.png">
   <meta name="viewport"
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#0066CC" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
@@ -239,6 +241,26 @@
     </div>
   </div>
 
+  <!-- MB WAY Phone Input Modal -->
+  <div id="mbway-modal" class="modal hidden">
+    <div class="method-card">
+      <div class="method-card-header">
+        <h3>MB WAY</h3>
+        <button id="close-mbway-modal" class="close-btn" aria-label="Fechar">×</button>
+      </div>
+
+      <div class="mbway-form">
+        <div class="form-group">
+          <label for="mbway-phone">Número de Telemóvel</label>
+          <input type="tel" id="mbway-phone" placeholder="912 345 678" maxlength="13" autocomplete="tel">
+          <small class="form-hint">Introduza o número associado ao MB WAY</small>
+        </div>
+
+        <button id="mbway-confirm-btn" class="btn-primary btn-full">Confirmar Pagamento</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification -->
   <div id="toast" class="toast hidden"></div>
 
@@ -256,6 +278,7 @@
 
   <script src="auth.js"></script>
   <script src="payment.js"></script>
+  <script src="mbway.js"></script>
   <script src="main.js"></script>
 </body>
 

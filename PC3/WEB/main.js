@@ -95,7 +95,7 @@ function fecharPainelLugar() {
     if (panel) panel.classList.add("hidden");
 }
 
-function showToast(message, type = 'success') {
+function showToast(message, type = 'success', duration = 3000) {
     const toast = document.getElementById('toast');
     if (!toast) return;
 
@@ -105,7 +105,7 @@ function showToast(message, type = 'success') {
 
     setTimeout(() => {
         toast.classList.add('hidden');
-    }, 3000);
+    }, duration);
 }
 
 // ==================== INITIALIZATION ====================
@@ -232,10 +232,24 @@ document.addEventListener('DOMContentLoaded', function () {
         btn.addEventListener("click", () => {
             if (!sessaoPendente) return;
 
-            const metodo = btn.dataset.method || "Método";
-            showToast(`Método selecionado: ${metodo}. Pagamento confirmado.`, "success");
+            const metodoRaw = btn.dataset.method || "Método";
+            const metodo = metodoRaw.trim();
+            console.log("Método selecionado:", metodo);
 
-            fecharEcraPagamento();
+            // Special handling for MB WAY
+            if (metodo === "MB WAY" || metodo.includes("MB WAY")) {
+                fecharModalMetodos();
+                if (typeof MbWayModule !== 'undefined') {
+                    MbWayModule.abrirModal();
+                } else {
+                    console.error("MbWayModule not loaded");
+                    // Fallback or alert user
+                    alert("Erro interno: Módulo MB WAY não disponível. Tente recarregar.");
+                }
+            } else {
+                showToast(`Método selecionado: ${metodo}. Pagamento confirmado.`, "success");
+                fecharEcraPagamento();
+            }
         });
     });
 
@@ -259,6 +273,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
     });
+
 
     // ----- ACCOUNT SCREEN LOGIC -----
     const accountBtn = document.getElementById("nav-account-btn");
