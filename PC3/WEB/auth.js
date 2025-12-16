@@ -13,6 +13,14 @@ function showLoginScreen() {
 function showAppScreen() {
     const loginScreen = document.getElementById("loginScreen");
     const appScreen = document.getElementById("appScreen");
+
+    // Hide all internal panels to ensure we start at the Map
+    const screens = ["account-screen", "payment-screen", "place-panel", "payment-method-modal"];
+    screens.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add("hidden");
+    });
+
     if (loginScreen) loginScreen.classList.add("hidden");
     if (appScreen) appScreen.classList.remove("hidden");
 
