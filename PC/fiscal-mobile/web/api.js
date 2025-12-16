@@ -61,6 +61,11 @@ const API = {
      */
     async saveFine(fine) {
         try {
+            // Convert photos to base64 array (extract data URLs)
+            const photosBase64 = fine.photos && fine.photos.length > 0
+                ? fine.photos.map(photo => photo.dataUrl)
+                : [];
+
             const payload = {
                 spot_id: fine.spotId,
                 fiscal_id: fine.fiscalId,
@@ -68,10 +73,9 @@ const API = {
                 license_plate: fine.plate,
                 reason: fine.observations || "Estacionamento sem sessão de pagamento válida",
                 amount: this.config.DEFAULT_FINE_AMOUNT,
-                gps_lat: fine.gps?.lat,
-                gps_lng: fine.gps?.lng,
-                location_address: fine.rua,
-                photo_base64: fine.photos && fine.photos.length > 0 ? fine.photos[0].dataUrl : null
+                photos: photosBase64,
+                notes: fine.observations || null
+                // GPS e location_address são buscados automaticamente pelo backend via spot_id
             };
 
             const response = await fetch(`${this.config.BACKEND_URL}/api/fines`, {
@@ -100,7 +104,7 @@ const API = {
                     lat: createdFine.gps_lat,
                     lng: createdFine.gps_lng
                 },
-                photos: createdFine.photo_url ? [{ dataUrl: createdFine.photo_url }] : [],
+                photos: createdFine.photos || [],
                 observations: createdFine.reason,
                 status: createdFine.status,
                 history: createdFine.history || [],
@@ -338,28 +342,5 @@ const API = {
         }
     },
 
-    /**
-     * Get irregularities from backend (optional - can use local calculation)
-     */
-    async loadIrregularities() {
-        try {
-            const response = await fetch(`${this.config.BACKEND_URL}/api/fiscal/irregularities`);
 
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-
-            const data = await response.json();
-
-            // Transform to frontend format
-            return data.irregularities.map(irreg => ({
-                spotId: irreg.spot_id,
-                duration: irreg.minutes_occupied * 60000, // Convert to ms
-                occupiedSince: Date.now() - (irreg.minutes_occupied * 60000)
-            }));
-        } catch (error) {
-            console.error('Error loading irregularities:', error);
-            return null; // Return null to indicate we should use local calculation
-        }
-    }
 };

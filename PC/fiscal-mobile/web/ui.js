@@ -134,10 +134,6 @@ const UI = {
         const irreg = window.appState.irregularities[spotId];
         const fiscal = JSON.parse(localStorage.getItem('fiscal'));
 
-        // Check tolerance (30 seconds)
-        const seconds = Math.floor(irreg.duration / 1000);
-        const withinTolerance = seconds <= 30;
-
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
         overlay.innerHTML = `
@@ -148,17 +144,11 @@ const UI = {
                 </div>
                 
                 <form id="fineForm" class="modal-body">
-                    ${withinTolerance ? `
-                        <div style="background: var(--gradient-success); color: white; padding: var(--spacing-md); border-radius: var(--border-radius-md); margin-bottom: var(--spacing-md); text-align: center; font-weight: 600;">
-                            ✋ Dentro da tolerância (${seconds}s)<br>
-                            <small style="opacity: 0.9;">Necessário >30s para multar</small>
-                        </div>
-                    ` : ''}
                     
                     <div class="form-group">
                         <label for="finePlate">🚗 Matrícula *</label>
-                        <input type="text" id="finePlate" required ${withinTolerance ? 'disabled' : ''} 
-                               placeholder="AA-00-BB" pattern="[A-Z]{2}-[0-9]{2}-[A-Z]{2}">
+                        <input type="text" id="finePlate" required maxlength="8"
+                               placeholder="AA-00-BB" style="text-transform: uppercase;">
                     </div>
                     
                     <div class="form-group">
@@ -176,26 +166,18 @@ const UI = {
                         <input type="text" value="${fiscal.nome} (${fiscal.id})" readonly style="background: var(--color-grey-light);">
                     </div>
                     
-                    <div class="form-group">
-                        <label>📍 GPS</label>
-                        <div id="gpsInfo" style="margin-bottom: var(--spacing-sm); padding: var(--spacing-sm); background: var(--color-grey-light); border-radius: var(--border-radius-sm); font-size: var(--font-size-sm);">
-                            📡 A obter localização...
-                        </div>
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="UI.refreshGPS()" ${withinTolerance ? 'disabled' : ''}>
-                            🔄 Atualizar GPS
-                        </button>
-                    </div>
+
                     
                     <div class="form-group">
                         <label for="finePhotos">📷 Fotos (1-3) *</label>
                         <input type="file" id="finePhotos" accept="image/*" capture="environment" 
-                               multiple max="3" ${withinTolerance ? 'disabled' : ''} required>
+                               multiple max="3" required>
                         <div id="photoPreview" class="photo-preview-container"></div>
                     </div>
                     
                     <div class="form-group">
                         <label for="fineObservations">💬 Observações</label>
-                        <textarea id="fineObservations" rows="3" ${withinTolerance ? 'disabled' : ''} placeholder="Adicione detalhes relevantes (opcional)" style="resize: vertical;"></textarea>
+                        <textarea id="fineObservations" rows="3" placeholder="Adicione detalhes relevantes (opcional)" style="resize: vertical;"></textarea>
                     </div>
                 </form>
                 
@@ -203,8 +185,7 @@ const UI = {
                     <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">
                         Cancelar
                     </button>
-                    <button class="btn btn-primary" onclick="UI.submitFine('${spotId}')" 
-                            ${withinTolerance ? 'disabled' : ''}>
+                    <button class="btn btn-primary" onclick="UI.submitFine('${spotId}')">
                         Emitir Coima
                     </button>
                 </div>
@@ -213,32 +194,30 @@ const UI = {
 
         document.body.appendChild(overlay);
 
-        // Get GPS immediately
-        window.currentGPS = null;
-        this.refreshGPS();
+        // Auto-format license plate
+        const plateInput = document.getElementById('finePlate');
+        plateInput.addEventListener('input', this.formatPlate);
 
         // Photo preview handler
         document.getElementById('finePhotos').addEventListener('change', this.handlePhotoPreview);
     },
 
     /**
-     * Refresh GPS location
+     * Auto-format license plate with hyphens
      */
-    async refreshGPS() {
-        const gpsInfo = document.getElementById('gpsInfo');
-        gpsInfo.textContent = 'A obter localização...';
+    formatPlate(event) {
+        let value = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-        try {
-            const position = await API.getCurrentPosition();
-            window.currentGPS = position;
-            gpsInfo.innerHTML = `
-                Lat: ${position.lat.toFixed(6)}, Lng: ${position.lng.toFixed(6)}<br>
-                Precisão: ${Math.round(position.accuracy)}m
-            `;
-        } catch (error) {
-            gpsInfo.textContent = 'Erro ao obter GPS: ' + error.message;
-            window.currentGPS = null;
+        // Add hyphens automatically: AA-00-BB or 00-AA-00, etc.
+        if (value.length > 2) {
+            value = value.slice(0, 2) + '-' + value.slice(2);
         }
+        if (value.length > 5) {
+            value = value.slice(0, 5) + '-' + value.slice(5);
+        }
+
+        // Limit to 8 characters (6 + 2 hyphens)
+        event.target.value = value.slice(0, 8);
     },
 
     /**
@@ -277,11 +256,6 @@ const UI = {
         const observations = document.getElementById('fineObservations').value;
         const fiscal = JSON.parse(localStorage.getItem('fiscal'));
 
-        if (!window.currentGPS) {
-            UI.showToast('GPS não disponível. Obtenha a localização primeiro.', 'error');
-            return;
-        }
-
         if (!photosInput.files.length) {
             UI.showToast('Adicione pelo menos uma fotografia', 'error');
             return;
@@ -304,7 +278,6 @@ const UI = {
                 fiscalId: fiscal.id,
                 fiscalNome: fiscal.nome,
                 timestamp: new Date().toISOString(),
-                gps: window.currentGPS,
                 photos,
                 observations,
                 status: 'Emitida',
@@ -401,47 +374,117 @@ const UI = {
 
         if (!fine) return;
 
+        const statusColors = {
+            'Emitida': '#dc2626',
+            'Notificada': '#f59e0b',
+            'Paga': '#10b981',
+            'Em Recurso': '#f59e0b',
+            'Anulada': '#6b7280'
+        };
+
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
         overlay.innerHTML = `
-            <div class="modal">
-                <div class="modal-header">
-                    <h2 class="modal-title">Detalhes da Coima</h2>
-                    <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">×</button>
+            <div class="modal" style="max-width: 700px;">
+                <div class="modal-header" style="background: linear-gradient(135deg, var(--gradient-primary)); color: white;">
+                    <div>
+                        <h2 class="modal-title" style="margin: 0; font-size: 1.5rem;">🚗 ${fine.plate}</h2>
+                        <div style="opacity: 0.9; font-size: 0.9rem; margin-top: 4px;">Coima #${fine.fineId.slice(-8)}</div>
+                    </div>
+                    <button class="modal-close" onclick="this.closest('.modal-overlay').remove()" style="color: white;">×</button>
                 </div>
                 
-                <div class="modal-body">
-                    <p><strong>ID:</strong> ${fine.fineId}</p>
-                    <p><strong>Matrícula:</strong> ${fine.plate}</p>
-                    <p><strong>Lugar:</strong> ${fine.spotId}</p>
-                    <p><strong>Data/Hora:</strong> ${new Date(fine.timestamp).toLocaleString('pt-PT')}</p>
-                    <p><strong>Fiscal:</strong> ${fine.fiscalNome} (${fine.fiscalId})</p>
-                    <p><strong>GPS:</strong> ${fine.gps.lat.toFixed(6)}, ${fine.gps.lng.toFixed(6)}</p>
-                    <p><strong>Status:</strong> ${fine.status}</p>
-                    ${fine.observations ? `<p><strong>Observações:</strong> ${fine.observations}</p>` : ''}
+                <div class="modal-body" style="padding: 0;">
                     
-                    <p><strong>Fotografias:</strong></p>
-                    <div class="photo-preview-container">
-                        ${fine.photos.map(p => `<img src="${p.dataUrl}" alt="${p.name}" class="photo-preview">`).join('')}
+                    <!-- Status Badge -->
+                    <div style="padding: var(--spacing-lg); background: ${statusColors[fine.status]}15; border-bottom: 2px solid ${statusColors[fine.status]};">
+                        <div style="display: flex; align-items: center; justify-content: center; gap: var(--spacing-sm);">
+                            <div style="width: 12px; height: 12px; background: ${statusColors[fine.status]}; border-radius: 50%;"></div>
+                            <strong style="color: ${statusColors[fine.status]}; font-size: 1.1rem;">${fine.status}</strong>
+                        </div>
                     </div>
-                    
-                    ${fine.history && fine.history.length > 0 ? `
-                        <p><strong>Histórico:</strong></p>
-                        <ul style="margin-left: var(--spacing-lg); font-size: var(--font-size-sm);">
-                            ${fine.history.map(h => `
-                                <li>${h.action} - ${new Date(h.timestamp).toLocaleString('pt-PT')}</li>
-                            `).join('')}
-                        </ul>
+
+                    <!-- Informações Principais -->
+                    <div style="padding: var(--spacing-lg); display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--spacing-md);">
+                        <div>
+                            <div style="color: var(--color-grey); font-size: var(--font-size-sm); margin-bottom: 4px;">📍 Lugar</div>
+                            <div style="font-weight: 600; color: var(--color-grey-dark);">${fine.spotId}</div>
+                            <div style="font-size: var(--font-size-sm); color: var(--color-grey); margin-top: 2px;">${fine.rua || 'Localização não especificada'}</div>
+                        </div>
+                        
+                        <div>
+                            <div style="color: var(--color-grey); font-size: var(--font-size-sm); margin-bottom: 4px;">🕐 Data/Hora</div>
+                            <div style="font-weight: 600; color: var(--color-grey-dark);">${new Date(fine.timestamp).toLocaleDateString('pt-PT')}</div>
+                            <div style="font-size: var(--font-size-sm); color: var(--color-grey); margin-top: 2px;">${new Date(fine.timestamp).toLocaleTimeString('pt-PT')}</div>
+                        </div>
+                        
+                        <div>
+                            <div style="color: var(--color-grey); font-size: var(--font-size-sm); margin-bottom: 4px;">👤 Fiscal</div>
+                            <div style="font-weight: 600; color: var(--color-grey-dark);">${fine.fiscalNome}</div>
+                            <div style="font-size: var(--font-size-sm); color: var(--color-grey); margin-top: 2px;">ID: ${fine.fiscalId}</div>
+                        </div>
+                        
+                        <div>
+                            <div style="color: var(--color-grey); font-size: var(--font-size-sm); margin-bottom: 4px;">💰 Valor</div>
+                            <div style="font-weight: 600; color: var(--color-primary); font-size: 1.25rem;">50,00 €</div>
+                        </div>
+                    </div>
+
+                    ${fine.gps && fine.gps.lat ? `
+                        <div style="padding: 0 var(--spacing-lg) var(--spacing-md);">
+                            <div style="background: var(--color-grey-light); padding: var(--spacing-sm); border-radius: var(--border-radius-sm); font-size: var(--font-size-sm);">
+                                <strong>📍 GPS:</strong> ${fine.gps.lat.toFixed(6)}, ${fine.gps.lng.toFixed(6)}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    ${fine.observations ? `
+                        <div style="padding: 0 var(--spacing-lg) var(--spacing-md);">
+                            <div style="color: var(--color-grey); font-size: var(--font-size-sm); margin-bottom: 4px;">💬 Observações</div>
+                            <div style="background: var(--color-grey-light); padding: var(--spacing-md); border-radius: var(--border-radius-sm); line-height: 1.5;">
+                                ${fine.observations}
+                            </div>
+                        </div>
                     ` : ''}
                     
-                    ${fine.status !== 'Anulada' && fine.status !== 'Paga' ? `
-                        <div style="margin-top: var(--spacing-lg);">
-                            <p><strong>Alterar Estado:</strong></p>
-                            <div style="display: flex; gap: var(--spacing-sm); flex-wrap: wrap; margin-top: var(--spacing-sm);">
-                                ${fine.status !== 'Notificada' ? `<button class="btn btn-secondary btn-sm" onclick="UI.updateFineStatus('${fineId}', 'Notificada')">Marcar Notificada</button>` : ''}
-                                ${fine.status !== 'Paga' ? `<button class="btn btn-secondary btn-sm" onclick="UI.updateFineStatus('${fineId}', 'Paga')">Marcar Paga</button>` : ''}
-                                ${fine.status !== 'Em Recurso' ? `<button class="btn btn-secondary btn-sm" onclick="UI.updateFineStatus('${fineId}', 'Em Recurso')">Marcar Em Recurso</button>` : ''}
-                                <button class="btn btn-danger btn-sm" onclick="UI.updateFineStatus('${fineId}', 'Anulada')">Anular</button>
+                    <!-- Fotografias -->
+                    ${fine.photos && fine.photos.length > 0 ? `
+                        <div style="padding: var(--spacing-lg); background: var(--color-grey-light); border-top: 1px solid var(--color-grey);">
+                            <div style="color: var(--color-grey-dark); font-weight: 600; margin-bottom: var(--spacing-md); display: flex; align-items: center; gap: var(--spacing-xs);">
+                                <span style="font-size: 1.25rem;">📷</span>
+                                Fotografias (${fine.photos.length})
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--spacing-md);">
+                                ${fine.photos.map((photo, idx) => `
+                                    <div onclick="UI.showPhotoFullscreen('${photo.dataUrl || photo}', ${idx})" 
+                                         style="cursor: pointer; position: relative; border-radius: var(--border-radius-md); overflow: hidden; aspect-ratio: 4/3; background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: transform 0.2s, box-shadow 0.2s;"
+                                         onmouseover="this.style.transform='scale(1.05)'; this.style.boxShadow='0 4px 16px rgba(0,0,0,0.2)';"
+                                         onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)';">
+                                        <img src="${photo.dataUrl || photo}" 
+                                             alt="Foto ${idx + 1}" 
+                                             style="width: 100%; height: 100%; object-fit: cover;">
+                                        <div style="position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,0.6)); padding: var(--spacing-sm); color: white; font-size: var(--font-size-sm); text-align: center;">
+                                            Foto ${idx + 1}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    ${fine.history && fine.history.length > 0 ? `
+                        <div style="padding: var(--spacing-lg); border-top: 1px solid var(--color-grey);">
+                            <div style="color: var(--color-grey-dark); font-weight: 600; margin-bottom: var(--spacing-md);">📋 Histórico</div>
+                            <div style="display: flex; flex-direction: column; gap: var(--spacing-sm);">
+                                ${fine.history.map(h => `
+                                    <div style="display: flex; align-items: start; gap: var(--spacing-sm); padding: var(--spacing-sm); background: var(--color-grey-light); border-radius: var(--border-radius-sm); font-size: var(--font-size-sm);">
+                                        <div style="min-width: 8px; height: 8px; background: var(--color-primary); border-radius: 50%; margin-top: 6px;"></div>
+                                        <div style="flex: 1;">
+                                            <div style="font-weight: 600; color: var(--color-grey-dark);">${h.action}</div>
+                                            <div style="color: var(--color-grey); margin-top: 2px;">${new Date(h.timestamp).toLocaleString('pt-PT')}</div>
+                                        </div>
+                                    </div>
+                                `).join('')}
                             </div>
                         </div>
                     ` : ''}
@@ -454,6 +497,40 @@ const UI = {
         `;
 
         document.body.appendChild(overlay);
+    },
+
+    /**
+     * Show photo in fullscreen viewer
+     */
+    showPhotoFullscreen(photoUrl, index) {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.style.background = 'rgba(0, 0, 0, 0.95)';
+        overlay.innerHTML = `
+            <div style="position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; padding: var(--spacing-lg);">
+                <button onclick="this.closest('.modal-overlay').remove()" 
+                        style="position: absolute; top: 20px; right: 20px; background: rgba(255,255,255,0.2); border: none; color: white; font-size: 2rem; width: 50px; height: 50px; border-radius: 50%; cursor: pointer; backdrop-filter: blur(10px); transition: background 0.2s;"
+                        onmouseover="this.style.background='rgba(255,255,255,0.3)'"
+                        onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                    ×
+                </button>
+                <img src="${photoUrl}" 
+                     alt="Foto ${index + 1}" 
+                     style="max-width: 90%; max-height: 90%; border-radius: var(--border-radius-lg); box-shadow: 0 20px 60px rgba(0,0,0,0.5);">
+                <div style="position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); color: white; padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--border-radius-lg); backdrop-filter: blur(10px);">
+                    Foto ${index + 1}
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        // Close on click outside
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay || e.target.tagName === 'DIV') {
+                overlay.remove();
+            }
+        });
     },
 
     /**
