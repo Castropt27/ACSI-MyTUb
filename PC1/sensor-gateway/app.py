@@ -72,15 +72,25 @@ async def ingest_sensor_data(request: Request):
       "sensordata": {
         "proximitymonitor": {
           "proximitymonitor": true/false
+        },
+        "location": {
+          "latitude": 41.553878,
+          "longitude": -8.427431
         }
-      }
+      },
+      "rua": "Praça do Comércio",
+      "zone": "A1"
     }
     
     Output to Kafka:
     {
-      "id": 1,
+      "id": "1",
       "ocupado": true/false,
-      "timestamp": "2025-12-11T19:22:06.190Z"
+      "timestamp": "2025-12-11T19:22:06.190Z",
+      "gps_lat": 41.553878,
+      "gps_lng": -8.427431,
+      "rua": "Praça do Comércio",
+      "zone": "A1"
     }
     """
     global last_sensor_state
@@ -96,6 +106,16 @@ async def ingest_sensor_data(request: Request):
         try:
             ocupado = data["sensordata"]["proximitymonitor"]["proximitymonitor"]
             raw_timestamp = data["timestamp"]
+            
+            # Extract optional GPS location data
+            location = data.get("sensordata", {}).get("location", {})
+            gps_lat = location.get("latitude")
+            gps_lng = location.get("longitude")
+            
+            # Extract optional metadata
+            rua = data.get("rua")
+            zone = data.get("zone")
+            
         except KeyError as e:
             logger.error(f"Missing required field: {e}")
             raise HTTPException(status_code=400, detail=f"Missing required field: {e}")
@@ -103,12 +123,25 @@ async def ingest_sensor_data(request: Request):
         # Convert timestamp to ISO format
         iso_timestamp = convert_timestamp(raw_timestamp)
         
-        # Create output message
+        # Create output message with all fields
         output = {
-            "id": 1,
+            "id": "1",  # String format to match PC2 expectations
             "ocupado": bool(ocupado),
             "timestamp": iso_timestamp
         }
+        
+        # Add GPS coordinates if available
+        if gps_lat is not None and gps_lng is not None:
+            output["gps_lat"] = gps_lat
+            output["gps_lng"] = gps_lng
+        
+        # Add street name if available
+        if rua is not None:
+            output["rua"] = rua
+        
+        # Add parking zone if available
+        if zone is not None:
+            output["zone"] = zone
         
         # Check if state changed
         state_changed = (last_sensor_state != ocupado)
