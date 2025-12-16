@@ -4,43 +4,13 @@ const WebSocket = require('ws');
 
 // Configuration
 const KAFKA_BROKERS = (process.env.KAFKA_BROKERS || 'localhost:9093').split(',');
-const KAFKA_TOPIC = process.env.KAFKA_TOPIC || 'sensor.raw';
+const KAFKA_TOPIC = process.env.KAFKA_TOPIC || 'notifications.irregularities';
 const KAFKA_GROUP_ID = process.env.KAFKA_GROUP_ID || 'fiscal-bridge-group';
 const WS_PORT = parseInt(process.env.WS_PORT || '8081');
-const NUM_SPOTS = parseInt(process.env.NUM_SPOTS || '10');
 
 // WebSocket server
 const wss = new WebSocket.Server({ port: WS_PORT });
 const clients = new Set();
-
-// Track spot mapping (sensor id -> spot rotation)
-let currentSpotIndex = 0;
-const spotIds = Array.from({ length: NUM_SPOTS }, (_, i) => `P${String(i + 1).padStart(3, '0')}`);
-
-// Map to track valid payment sessions per spot
-// For demo: randomly assign some spots as having valid sessions
-const validSessions = new Map();
-
-/**
- * Simulates whether a spot has a valid payment session
- * For demo purposes: 30% of occupied spots have valid sessions
- */
-function hasValidSession(spotId) {
-    if (!validSessions.has(spotId)) {
-        // Randomly assign: 30% chance of having valid session
-        validSessions.set(spotId, Math.random() < 0.3);
-    }
-    return validSessions.get(spotId);
-}
-
-/**
- * Get next spot ID for round-robin distribution
- */
-function getNextSpotId() {
-    const spotId = spotIds[currentSpotIndex];
-    currentSpotIndex = (currentSpotIndex + 1) % spotIds.length;
-    return spotId;
-}
 
 // WebSocket connection handler
 wss.on('connection', (ws) => {
@@ -87,7 +57,7 @@ async function start() {
         console.log(`📡 Kafka Brokers: ${KAFKA_BROKERS.join(', ')}`);
         console.log(`📋 Topic: ${KAFKA_TOPIC}`);
         console.log(`🔌 WebSocket Port: ${WS_PORT}`);
-        console.log(`🅿️  Mapping sensor.raw → Spot 1 (Mercado de Braga - Lugar 1)`);
+        console.log(`🚨 Consuming infractions from PC2 backend...`);
 
         // Connect to Kafka
         await consumer.connect();
@@ -101,39 +71,31 @@ async function start() {
         await consumer.run({
             eachMessage: async ({ topic, partition, message }) => {
                 try {
-                    // Parse Kafka message
+                    // Parse Kafka message (infraction event from PC2)
                     const rawValue = message.value.toString();
-                    const sensorData = JSON.parse(rawValue);
+                    const infractionData = JSON.parse(rawValue);
 
-                    console.log(`📨 Received from Kafka: ${rawValue}`);
+                    console.log(`📨 Received infraction from Kafka: ${rawValue}`);
 
-                    // Extract fields
-                    const { ocupado, timestamp } = sensorData;
+                    // Extract infraction fields from PC2 format
+                    const { type, spot_id, ocupado, timestamp, message: messageText } = infractionData;
 
-                    // Map directly to Spot 1 (Lugar 1 - Mercado de Braga)
-                    const spotId = "1";
+                    // Calculate minutes occupied from timestamp
+                    const occupiedSince = new Date(timestamp);
+                    const now = new Date();
+                    const minutesOccupied = Math.floor((now - occupiedSince) / (1000 * 60));
 
-                    // Determine state
-                    let state = ocupado ? 'occupied' : 'free';
-
-                    // Check if spot has valid payment session
-                    const hasSession = hasValidSession(spotId);
-
-                    // When spot becomes free, reset session status (new car might arrive)
-                    if (!ocupado) {
-                        validSessions.delete(spotId);
-                    }
-
-                    // Create message for frontend
+                    // Create WebSocket message for frontend
                     const wsMessage = {
-                        spotId,
-                        state,
-                        hasValidSession: hasSession, // Frontend needs this to detect irregularities
-                        timestamp: timestamp || new Date().toISOString(),
-                        receivedAt: new Date().toISOString()
+                        type: type || 'IRREGULARITY_DETECTED',
+                        spotId: spot_id,
+                        occupiedSince: occupiedSince.toISOString(),
+                        minutesOccupied: minutesOccupied,
+                        timestamp: now.toISOString(),
+                        message: messageText
                     };
 
-                    console.log(`📤 Broadcasting to WebSocket clients: ${JSON.stringify(wsMessage)}`);
+                    console.log(`📤 Broadcasting to ${clients.size} WebSocket client(s): ${JSON.stringify(wsMessage)}`);
 
                     // Broadcast to all connected clients
                     broadcast(wsMessage);
@@ -144,7 +106,7 @@ async function start() {
             },
         });
 
-        console.log('✅ Kafka consumer running. Waiting for messages...');
+        console.log('✅ Kafka consumer running. Waiting for infractions...');
         console.log(`✅ WebSocket server running on ws://localhost:${WS_PORT}`);
 
     } catch (error) {

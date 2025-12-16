@@ -87,6 +87,10 @@ function handleBackendEvent(event) {
     const { type } = event;
 
     switch (type) {
+        case 'IRREGULARITY_DETECTED':
+            handleIrregularityDetected(event);
+            break;
+
         case 'IRREGULARITIES_UPDATE':
             handleIrregularitiesUpdate(event);
             break;
@@ -108,6 +112,35 @@ function handleBackendEvent(event) {
 
         default:
             console.warn('Unknown event type:', type);
+    }
+}
+
+/**
+ * Handle IRREGULARITY_DETECTED event
+ * Real-time infraction from Kafka via bridge
+ */
+function handleIrregularityDetected(event) {
+    const { spotId, occupiedSince, minutesOccupied } = event;
+
+    console.log(`🚨 NEW irregularity detected for spot ${spotId} (${minutesOccupied} minutes occupied)`);
+
+    // Calculate duration from occupied_since timestamp
+    const occupiedSinceTimestamp = new Date(occupiedSince).getTime();
+    const duration = Date.now() - occupiedSinceTimestamp;
+
+    // Add or update irregularity in state
+    window.appState.irregularities[spotId] = {
+        spotId,
+        occupiedSince: occupiedSinceTimestamp,
+        duration
+    };
+
+    // Show toast notification
+    UI.showToast(`⚠️ Nova Irregularidade: Lugar ${spotId} (${minutesOccupied} min)`, 'error');
+
+    // Update UI if on irregularidades tab
+    if (window.appRouter.currentTab === 'irregularidades') {
+        UI.renderIrregularidadesTab();
     }
 }
 
@@ -271,49 +304,7 @@ async function loadInitialSpots() {
     }
 }
 
-/**
- * Poll irregularities from backend
- * This triggers backend to broadcast via WebSocket AND updates local state
- */
-async function pollIrregularities() {
-    try {
-        console.log('🔍 Polling irregularities from backend...');
-        const irregularities = await API.loadIrregularities();
 
-        if (irregularities !== null) {
-            // Track new irregularities
-            const previousIds = new Set(Object.keys(window.appState.irregularities));
-
-            // Update state directly from polling (in case WebSocket fails)
-            window.appState.irregularities = {};
-
-            irregularities.forEach(irreg => {
-                window.appState.irregularities[irreg.spotId] = {
-                    spotId: irreg.spotId,
-                    occupiedSince: irreg.occupiedSince,
-                    duration: irreg.duration
-                };
-
-                // Show toast only for NEW irregularities
-                if (!previousIds.has(irreg.spotId)) {
-                    console.log(`🚨 NEW irregularity detected for spot ${irreg.spotId}`);
-                    UI.showToast(`⚠️ Irregularidade: Lugar ${irreg.spotId}`, 'error');
-                }
-            });
-
-            console.log(`📊 Irregularities: ${irregularities.length} spots`);
-
-            // Update UI if on irregularidades tab
-            if (window.appRouter.currentTab === 'irregularidades') {
-                UI.renderIrregularidadesTab();
-            }
-        } else {
-            console.log('ℹ️ No irregularities data from backend');
-        }
-    } catch (error) {
-        console.error('❌ Error polling irregularities:', error);
-    }
-}
 
 /**
  * Handle login
@@ -359,18 +350,13 @@ function initApp() {
     // Navigate to Map tab initially
     window.appRouter.navigateToTab('mapa');
 
-    // Connect to WebSocket
+    // Connect to WebSocket for real-time Kafka events
     initWebSocket();
-
-    // START POLLING IRREGULARITIES (CRITICAL!)
-    console.log('⏰ Starting irregularities polling every 5 seconds');
-    pollIrregularities(); // First call immediately
-    setInterval(pollIrregularities, 5000); // Poll every 5 seconds
 
     // Start irregularity duration updater (every 10 seconds)
     setInterval(updateIrregularityDurations, 10000);
 
-    console.log('✅ App initialized');
+    console.log('✅ App initialized - listening for real-time infractions via Kafka');
 }
 
 /**

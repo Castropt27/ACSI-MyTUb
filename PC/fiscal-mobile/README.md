@@ -16,10 +16,10 @@ O **myTUB Fiscal** é uma aplicação móvel (HTML/CSS/JS vanilla) que permite a
 
 ```
 ┌─────────────────┐     ┌──────────────┐     ┌─────────────────┐
-│   ZIG SIM App   │────▶│ Kafka Broker │────▶│  Bridge Server  │
-│  (Smartphone)   │     │ sensor.raw   │     │  (Node.js)      │
-└─────────────────┘     └──────────────┘     └─────────────────┘
-                                                      │
+│   PC2 Backend   │────▶│ Kafka Broker │────▶│  Bridge Server  │
+│  (Irregularity  │     │  infracoes   │     │   (Node.js)     │
+│   Detection)    │     └──────────────┘     └─────────────────┘
+└─────────────────┘                                   │
                                                       │ WebSocket
                                                       ▼
                                               ┌──────────────────┐
@@ -30,9 +30,10 @@ O **myTUB Fiscal** é uma aplicação móvel (HTML/CSS/JS vanilla) que permite a
 
 ### Componentes
 
-1. **Kafka**: Recebe eventos de sensores de proximidade via tópico `sensor.raw`
-2. **Bridge Server** (Node.js): Consome Kafka e transmite via WebSocket para o frontend
-3. **Frontend**: Interface móvel SPA com mapa, irregularidades, e gestão de coimas
+1. **PC2 Backend**: Deteta irregularidades e produz eventos para Kafka no tópico `infracoes`
+2. **Kafka**: Broker de mensagens que transmite infrações em tempo real
+3. **Bridge Server** (Node.js): Consome tópico `infracoes` e transmite via WebSocket para o frontend
+4. **Frontend**: Interface móvel SPA com mapa, irregularidades, e gestão de coimas
 
 ## 🚀 Setup
 
@@ -75,11 +76,11 @@ npm start
 ```
 🚀 Starting myTUB Fiscal Bridge...
 📡 Kafka Brokers: localhost:9093
-📋 Topic: sensor.raw
+📋 Topic: infracoes
 🔌 WebSocket Port: 8081
-🅿️  Simulating 10 parking spots
+🚨 Consuming infractions from PC2 backend...
 ✅ Connected to Kafka
-✅ Subscribed to topic: sensor.raw
+✅ Subscribed to topic: infracoes
 ✅ WebSocket server running on ws://localhost:8081
 ```
 
@@ -133,14 +134,11 @@ Edita `.env` na pasta `bridge/`:
 ```env
 # Kafka
 KAFKA_BROKERS=localhost:9093      # Broker externo
-KAFKA_TOPIC=sensor.raw
+KAFKA_TOPIC=infracoes             # Tópico de infrações do PC2
 KAFKA_GROUP_ID=fiscal-bridge-group
 
 # WebSocket
 WS_PORT=8081
-
-# Simulação
-NUM_SPOTS=10                      # Número de lugares a simular
 ```
 
 ### Spots Configuration
@@ -161,13 +159,13 @@ Edita `web/spots.sample.json` para alterar lugares:
 
 ## 📡 Formato de Dados
 
-### Kafka → Bridge (sensor.raw)
+### PC2 → Kafka (infracoes)
 
 ```json
 {
-  "id": 1,
-  "ocupado": true,
-  "timestamp": "2025-12-15T19:00:00.000Z"
+  "spot_id": "1",
+  "occupied_since": "2025-12-16T09:30:00Z",
+  "minutes_occupied": 35
 }
 ```
 
@@ -175,50 +173,54 @@ Edita `web/spots.sample.json` para alterar lugares:
 
 ```json
 {
-  "spotId": "P001",
-  "state": "occupied",
-  "hasValidSession": false,
-  "timestamp": "2025-12-15T19:00:00.000Z",
-  "receivedAt": "2025-12-15T19:00:01.000Z"
+  "type": "IRREGULARITY_DETECTED",
+  "spotId": "1",
+  "occupiedSince": "2025-12-16T09:30:00Z",
+  "minutesOccupied": 35,
+  "timestamp": "2025-12-16T10:05:00Z"
 }
 ```
 
 **Campos:**
-- `state`: `"free"` | `"occupied"`
-- `hasValidSession`: Se o lugar tem sessão de pagamento válida (simulado: 30% dos ocupados)
+- `type`: Tipo de evento (`IRREGULARITY_DETECTED`)
+- `spotId`: ID do lugar de estacionamento
+- `occupiedSince`: Timestamp ISO8601 de quando o lugar foi ocupado
+- `minutesOccupied`: Duração de ocupação em minutos
 
 ### Lógica de Irregularidades
 
 ```
-SE (state === "occupied" AND hasValidSession === false)
-  ENTÃO rastreia tempo ocupado
-  SE tempo > 5 minutos
-    ENTÃO adiciona a "Irregularidades"
+PC2 Backend:
+  SE (lugar ocupado SEM sessão válida POR >30 minutos)
+    ENTÃO produz evento para Kafka topic "infracoes"
   FIM SE
-SENÃO
-  remove de "Irregularidades"
-FIM SE
+
+Fiscal-Mobile:
+  QUANDO recebe evento "IRREGULARITY_DETECTED" via WebSocket
+    ENTÃO adiciona à lista de irregularidades
+    E mostra notificação toast ao fiscal
+  FIM QUANDO
 ```
 
 ## 🧪 Testar com Eventos Reais
 
-### Opção 1: ZIG SIM (Recomendado)
+### Opção 1: PC2 Backend (Recomendado)
 
-1. Instala ZIG SIM no smartphone
-2. Configura IP do PC no PC1/ZIG SIM/udp_to_http_adapter.py
-3. Executa adapter: `python udp_to_http_adapter.py`
-4. Inicia app ZIG SIM e ativa proximity sensor
+1. Certifica-te que o PC2 backend está a correr
+2. O PC2 deteta irregularidades automaticamente (lugares ocupados >30 min sem sessão)
+3. Eventos são produzidos para Kafka no tópico `infracoes`
+4. O fiscal-mobile recebe notificações em tempo real
 
-### Opção 2: Console Producer (Manual)
+### Opção 2: Console Producer (Teste Manual)
 
 ```bash
-docker exec -it kafka kafka-console-producer --bootstrap-server pc-kafka:9092 --topic sensor.raw
+docker exec -it kafka kafka-console-producer --bootstrap-server pc-kafka:9092 --topic infracoes
 ```
 
 Envia eventos manualmente:
 ```json
-{"id":1,"ocupado":true,"timestamp":"2025-12-15T19:00:00.000Z"}
-{"id":1,"ocupado":false,"timestamp":"2025-12-15T19:06:00.000Z"}
+{"spot_id":"1","occupied_since":"2025-12-16T09:30:00Z","minutes_occupied":35}
+{"spot_id":"2","occupied_since":"2025-12-16T09:45:00Z","minutes_occupied":50}
 ```
 
 ## 🐛 Troubleshooting
@@ -238,10 +240,11 @@ Envia eventos manualmente:
 - Testa conectividade: `http://localhost:8080` (Kafka UI)
 - Confirma que sensor-gateway está a receber: `docker logs sensor-gateway`
 
-### Irregularidades não aparecem
-- Espera >5 minutos com sensor `ocupado: true` e `hasValidSession: false`
+### Infrações não aparecem
+- Certifica-te que o PC2 backend está a produzir para o tópico `infracoes`
+- Verifica Kafka UI: `http://localhost:8080` → tópico `infracoes`
+- Confirma que o bridge está conectado e a receber mensagens
 - Verifica console do browser para logs do WebSocket
-- Confirma que o bridge está a enviar `hasValidSession: false` (aparece em 70% dos eventos)
 
 ## 📚 Stack Tecnológica
 
@@ -282,10 +285,11 @@ Envia eventos manualmente:
 
 ## 📝 Notas
 
-- **Simulação de Sessões**: O bridge atribui aleatoriamente `hasValidSession` (30% true) para demo. Numa implementação real, isto viria de uma API de pagamentos.
-- **Persistência**: Coimas guardadas em localStorage. Para produção, integrar com API REST + PostgreSQL.
-- **Sem Offline**: App requer ligação contínua ao WebSocket.
-- **Spot ID Mapping**: Como o sensor envia sempre `id: 1`, o bridge distribui eventos por round-robin para simular 10 lugares distintos.
+- **Event-Driven Architecture**: Fiscal-mobile agora usa eventos Kafka em tempo real em vez de polling REST
+- **Zero Polling**: Eliminou-se a lógica de polling de 5 em 5 segundos, reduzindo carga no backend
+- **Real-Time Notifications**: Fiscais recebem notificações instantâneas quando o PC2 deteta infrações
+- **Persistência**: Coimas guardadas em localStorage. Para produção, integrar com API REST + PostgreSQL
+- **Sem Offline**: App requer ligação contínua ao WebSocket
 
 ## 📄 Licença
 
