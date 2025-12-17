@@ -90,8 +90,14 @@ function fecharPainelLugar() {
 }
 
 // --- SESSION POLLING & STATE MANAGEMENT ---
+// --- SESSION POLLING & STATE MANAGEMENT (DEPRECATED but kept for fallback or removed if full switch?)
+// Actually, let's remove the old declarations to fix the conflict.
+// The new logic is at line ~147.
+// I will comment out these lines or remove them.
+/*
 let sessionPollingInterval = null;
 let currentSessionId = null;
+*/
 
 async function checkActiveSession(spotId) {
     try {
@@ -107,43 +113,80 @@ async function checkActiveSession(spotId) {
         return null;
     }
 }
+// Polling Removed
 
-function startSessionPolling(sessionId) {
-    if (sessionPollingInterval) clearInterval(sessionPollingInterval);
-    currentSessionId = sessionId;
 
-    // Poll immediately
-    pollSessionStatus();
+// Polling functions removed
 
-    sessionPollingInterval = setInterval(pollSessionStatus, 2000);
+// --- SESSION WEBSOCKET LOGIC ---
+let wsClient = null;
+let currentSessionId = null;
+
+function connectWebSocket(sessionId) {
+    if (wsClient && wsClient.readyState === WebSocket.OPEN) {
+        return;
+    }
+
+    // Connect to the Bridge (Client Browser -> Localhost:3001)
+    wsClient = new WebSocket('ws://localhost:3001');
+
+    wsClient.onopen = () => {
+        console.log('✅ Connected to Kafka Bridge');
+    };
+
+    wsClient.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            // Expected format: { topic: "...", event: { ... } }
+            console.log("Global Notification:", data);
+
+            if (data.topic === 'notifications.sessions') {
+                const payload = data.event; // The actual event data
+                if (currentSessionId && String(payload.sessionId) === String(currentSessionId)) {
+                    handleNotification(payload);
+                }
+            }
+        } catch (e) {
+            console.error("Error parsing WS message:", e);
+        }
+    };
+
+    wsClient.onclose = () => {
+        console.log('❌ Disconnected from Bridge');
+        // Optional: Reconnect logic
+        setTimeout(() => connectWebSocket(sessionId), 5000);
+    };
+
+    wsClient.onerror = (err) => {
+        console.error("WS Error:", err);
+    };
 }
 
-async function pollSessionStatus() {
-    if (!currentSessionId) return;
-
-    try {
-        const response = await fetch(`http://192.168.21.17:8000/api/sessions/${currentSessionId}`);
-        if (!response.ok) {
-            if (response.status === 404) {
-                // Session likely gone
-                console.warn("Session not found during polling");
-                stopSessionPolling();
-            }
-            return;
+function handleNotification(data) {
+    // data: { sessionId: "...", status: "GRACE" }
+    // Backend (Bridge) sends event.status
+    if (data.status === "GRACE") {
+        if (typeof ExtensionModule !== 'undefined') {
+            ExtensionModule.triggerRenewal({ sessionId: data.sessionId, ...data });
         }
-
-        const session = await response.json();
-        updateSessionUI(session);
-    } catch (e) {
-        console.error("Polling error:", e);
+    } else if (data.status === "EXPIRED") {
+        showExpiredState();
     }
 }
 
-function stopSessionPolling() {
-    if (sessionPollingInterval) clearInterval(sessionPollingInterval);
-    sessionPollingInterval = null;
+function startSessionWebSocket(sessionId) {
+    currentSessionId = sessionId;
+    if (!wsClient || wsClient.readyState !== WebSocket.OPEN) {
+        connectWebSocket(sessionId);
+    }
+}
+
+function stopSessionWebSocket() {
     currentSessionId = null;
-    // Clear banners if any
+    if (wsClient) {
+        wsClient.close();
+        wsClient = null;
+    }
     const banner = document.getElementById("grace-banner");
     if (banner) banner.remove();
 }
@@ -170,10 +213,12 @@ function updateSessionUI(session) {
     }
 
     if (status === "GRACE") {
-        showGraceBanner(session);
+        if (typeof ExtensionModule !== 'undefined') {
+            ExtensionModule.triggerRenewal(session);
+        }
     } else if (status === "EXPIRED") {
         showExpiredState(session);
-        stopSessionPolling();
+        stopSessionWebSocket();
     } else {
         // ACTIVE
         // Ideally update timer in panel if open
@@ -188,67 +233,7 @@ function updateSessionUI(session) {
     }
 }
 
-function showGraceBanner(session) {
-    let banner = document.getElementById("grace-banner");
-    if (!banner) {
-        banner = document.createElement("div");
-        banner.id = "grace-banner";
-        banner.style.position = "fixed";
-        banner.style.top = "0";
-        banner.style.left = "0";
-        banner.style.width = "100%";
-        banner.style.backgroundColor = "#F57F17"; // Warning Orange
-        banner.style.color = "white";
-        banner.style.padding = "10px";
-        banner.style.textAlign = "center";
-        banner.style.zIndex = "3000";
-        banner.style.fontWeight = "bold";
-        banner.innerHTML = `
-            ⚠️ O tempo expirou! Tens <span id="grace-countdown">30</span>s para renovar. 
-            <button id="banner-renew-btn" style="background: white; color: #F57F17; border: none; padding: 4px 8px; margin-left: 10px; border-radius: 4px; cursor: pointer;">RENOVAR AGORA</button>
-        `;
-        document.body.appendChild(banner);
 
-        document.getElementById("banner-renew-btn").addEventListener("click", () => {
-            // Open Renewal UI (Payment Screen directly?)
-            // Or Open Place Panel
-            // Let's assume re-opening payment with current session context
-            sessaoPendente = {
-                lugarId: session.spotId,
-                lugarNome: "Renovação",
-                matricula: session.licensePlate, // From session
-                duracao: 0, // Will be set by user
-                isRenewal: true,
-                sessionId: session.sessionId
-            };
-            abrirEcraPagamento(); // Need to adjust this to show duration selection?
-            // Actually, extension.js handles "Renewal". Maybe open Extension Modal?
-            // "Renovar" button -> Extension Selection
-
-            // Simpler: Trigger extension flow IF we have logic for it.
-            // For now, let's just open the Place Panel or Payment.
-            // Wait, User said "Renovar: POST .../renew".
-            // extension.js has logic for "extension".
-            // Let's invoke extension.js logic if possible.
-            const extModal = document.getElementById("extension-selection-modal");
-            if (extModal) {
-                // Prepare context for extension
-                // We need to know which session it is.
-                // extension.js uses `activeSession` logic.
-                // We might need to inject this session into `sessionData` or similar logic.
-                // Use extension.js `applyExtension` placeholder?
-
-                // Reuse Opening Place Panel for simplicity if it handles "Renovar"
-                // User said "mostrar botão Renovar" in panel.
-            }
-        });
-    }
-
-    // Update Countdown
-    const countdown = document.getElementById("grace-countdown");
-    // This needs real calculation based on `graceEndTime`. 
-    // Assuming 30s fixed for now from trigger.
-}
 
 function showExpiredState() {
     const banner = document.getElementById("grace-banner");
@@ -308,9 +293,9 @@ async function abrirPainelLugar(lugar) {
 
         if (form) form.classList.add("hidden");
 
-        // Start polling this session if not already
+        // Start WebSocket for this session if not already
         if (currentSessionId !== activeSession.sessionId) {
-            startSessionPolling(activeSession.sessionId);
+            startSessionWebSocket(activeSession.sessionId);
         }
 
     } else if (activeSession && !isMySession) {
@@ -401,9 +386,9 @@ window.finishParkingSession = async function (method) {
             const resData = await response.json();
             console.log("Session created in backend:", resData);
 
-            // Start Polling immediately if we have sessionId
+            // Start WebSocket immediately if we have sessionId
             if (resData.sessionId) {
-                startSessionPolling(resData.sessionId);
+                startSessionWebSocket(resData.sessionId);
                 showToast(`Sessão criada! ID: ${resData.sessionId}`, "success");
             } else {
                 showToast("Sessão criada (sem ID retornado).", "success");

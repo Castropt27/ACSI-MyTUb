@@ -277,4 +277,39 @@ if (btnMbwayConfirm) {
 startSessionMonitoring();
 
 // Expose
+window.ExtensionModule = {
+    triggerRenewal: function (session) {
+        // Prevent multiple triggers for the same session
+        if (sessionToExtendId === session.sessionId && !document.getElementById("extension-selection-modal").classList.contains("hidden")) {
+            return;
+        }
+
+        sessionToExtendId = session.sessionId;
+
+        // Open Standard Modal (Original Design)
+        showSelectionModal();
+
+        // 30 Seconds Logic
+        // We will not drastically change the UI text as per user request ("quero o design antigo").
+        // We just enforce the timeout.
+        if (window.graceInterval) clearInterval(window.graceInterval);
+
+        let timeLeft = 30;
+        // Optional: clear any previous custom header if we polluted it? 
+        // We assume standard HTML is static. 
+        // If we want to be nice, we can maybe log or just enforce.
+
+        // Timer to auto-close
+        window.graceInterval = setInterval(() => {
+            timeLeft--;
+            if (timeLeft <= 0) {
+                clearInterval(window.graceInterval);
+                hideSelectionModal();
+                if (typeof showToast === 'function') showToast("Tempo de decisão esgotado. Sessão finalizada.", "error");
+                // We do not explicitly emit fine visual here to respect "no fine" request.
+            }
+        }, 1000);
+    },
+    abrirModal: showSelectionModal
+};
 window.checkSessions = checkSessions;
