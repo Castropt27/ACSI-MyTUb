@@ -137,6 +137,30 @@ public class FinesController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
 
+        // Prepare JSONB for photos if present
+        org.postgresql.util.PGobject photosPg = null;
+        try {
+            if (photosJson != null) {
+                photosPg = new org.postgresql.util.PGobject();
+                photosPg.setType("jsonb");
+                photosPg.setValue(photosJson);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to prepare JSONB for photos: {}", e.getMessage());
+        }
+
+        // Prepare JSONB for history
+        org.postgresql.util.PGobject historyPg = null;
+        try {
+            if (historyJson != null) {
+                historyPg = new org.postgresql.util.PGobject();
+                historyPg.setType("jsonb");
+                historyPg.setValue(historyJson);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to prepare JSONB for history: {}", e.getMessage());
+        }
+
         // Insert fine
         jdbcTemplate.update(
             """
@@ -147,8 +171,8 @@ public class FinesController {
             """,
             fineId, request.getSpotId(), request.getFiscalId(), request.getFiscalName(),
             request.getLicensePlate(), now, request.getReason(), request.getAmount(),
-            request.getPhotoBase64(), photosJson, request.getNotes(),
-            gpsLat, gpsLng, locationAddress, historyJson
+            request.getPhotoBase64(), photosPg != null ? photosPg : null, request.getNotes(),
+            gpsLat, gpsLng, locationAddress, historyPg != null ? historyPg : null
         );
 
         // Mark irregularity as resolved
@@ -246,6 +270,22 @@ public class FinesController {
         return ResponseEntity.ok(response);
     }
 
+    @GetMapping("/fines/fiscal/{fiscalId}")
+    public ResponseEntity<Map<String, Object>> listFinesByFiscal(@PathVariable String fiscalId) {
+        List<Fine> fines = jdbcTemplate.query(
+            "SELECT * FROM fines WHERE fiscal_id = ? ORDER BY issue_timestamp DESC",
+            new FineRowMapper(),
+            fiscalId
+        );
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("total", fines.size());
+        response.put("fines", fines);
+        response.put("timestamp", Instant.now().toString());
+
+        return ResponseEntity.ok(response);
+    }
+
     @PutMapping("/fines/{fineId}")
     public ResponseEntity<Fine> updateFine(
         @PathVariable String fineId,
@@ -289,10 +329,20 @@ public class FinesController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
 
-        // Update fine
+        // Prepare JSONB for history update
+        org.postgresql.util.PGobject historyPg = null;
+        try {
+            historyPg = new org.postgresql.util.PGobject();
+            historyPg.setType("jsonb");
+            historyPg.setValue(historyJson);
+        } catch (Exception e) {
+            log.warn("Failed to prepare JSONB for history update: {}", e.getMessage());
+        }
+
+        // Update fine with proper JSONB
         jdbcTemplate.update(
             "UPDATE fines SET status = ?, history = ?, updated_at = NOW() WHERE fine_id = ?",
-            request.getStatus(), historyJson, fineId
+            request.getStatus(), historyPg != null ? historyPg : historyJson, fineId
         );
 
         // Fetch updated fine
