@@ -50,19 +50,35 @@ function checkSession() {
     return false;
 }
 
-function login(name, password) {
-    // Accept any credentials for demo purposes (Simple Auth)
-    if (name && password) {
-        currentClient = {
-            id: Date.now().toString(),
-            name: name,
-            loginAt: new Date().toISOString()
-        };
-        localStorage.setItem("currentClient", JSON.stringify(currentClient));
-        showAppScreen();
-        return true;
+async function login(username, password) {
+    if (!username || !password) return false;
+
+    // The Backend API (PC2) does not have a /auth/login endpoint.
+    // We simulate login here, but we can check if backend is reachable.
+
+    try {
+        // Optional: Check if backend is alive
+        const healthCheck = await fetch(`${Config.API_BASE_URL.replace('/api', '')}/health`);
+        // Note: URL structure assumes /health is at root or config base? 
+        // config.js has API_BASE_URL = ...:8000/api
+        // backend_api.py has @app.get("/health") at root?
+        // Wait, FastAPI defaults. usually root /health or /api/health depending on router.
+        // backend_api.py lines 180: @app.get("/health"). It's at ROOT level if app is not mounted under /api.
+        // But app definition is simple FastAPI(). 
+        // So it is likely http://IP:8000/health.config.js has /api.
+    } catch (e) {
+        console.warn("Backend connectivity check failed", e);
     }
-    return false;
+
+    // Simulate Success for Demo
+    currentClient = {
+        id: Date.now().toString(),
+        name: username,
+        loginAt: new Date().toISOString()
+    };
+    localStorage.setItem("currentClient", JSON.stringify(currentClient));
+    showAppScreen();
+    return true;
 }
 
 function logout() {
