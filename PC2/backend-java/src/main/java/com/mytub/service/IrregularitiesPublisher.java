@@ -97,6 +97,29 @@ public class IrregularitiesPublisher {
                 sentKeys.add(key);
                 log.info("Published irregularity for spot {} to topic {}", irr.spotId(), irregularitiesTopic);
             }
+
+            // Publish RESOLVED for spots no longer irregular
+            String resolvedSql = """
+                SELECT DISTINCT sr.spot_id
+                FROM latest_sensor_readings sr
+                WHERE sr.ocupado = false
+                AND sr.spot_id IN (SELECT DISTINCT spot_id FROM irregularities WHERE is_irregular = true)
+            """;
+            List<String> clearedSpots = jdbcTemplate.query(
+                    resolvedSql,
+                    (rs, rowNum) -> rs.getString("spot_id")
+            );
+            for (String spotId : clearedSpots) {
+                Map<String, Object> resolvedPayload = new HashMap<>();
+                resolvedPayload.put("type", "IRREGULARITY_RESOLVED");
+                resolvedPayload.put("spot_id", spotId);
+                resolvedPayload.put("timestamp", now.toString());
+                resolvedPayload.put("message", "Lugar " + spotId + " agora vago - irregularidade resolvida");
+
+                String value = objectMapper.writeValueAsString(resolvedPayload);
+                producer.send(new ProducerRecord<>(irregularitiesTopic, spotId, value));
+                log.info("Published RESOLVED for spot {} to topic {}", spotId, irregularitiesTopic);
+            }
         } catch (Exception e) {
             log.warn("Irregularities publish failed: {}", e.getMessage());
         }
