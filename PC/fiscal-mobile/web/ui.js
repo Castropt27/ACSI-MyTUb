@@ -385,11 +385,11 @@ const UI = {
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
         overlay.innerHTML = `
-            <div class="modal" style="max-width: 700px;">
-                <div class="modal-header" style="background: linear-gradient(135deg, var(--gradient-primary)); color: white;">
+            <div class="modal modal-fine-detail" style="max-width: 700px;">
+                <div class="modal-header" style="background: linear-gradient(135deg, #1565C0, #0097A7); color: white; padding: 1.5rem;">
                     <div>
-                        <h2 class="modal-title" style="margin: 0; font-size: 1.5rem;">🚗 ${fine.plate}</h2>
-                        <div style="opacity: 0.9; font-size: 0.9rem; margin-top: 4px;">Coima #${fine.fineId.slice(-8)}</div>
+                        <h2 class="modal-title" style="margin: 0; font-size: 1.75rem; font-weight: 700; color: white; -webkit-text-fill-color: white;">🚗 ${fine.plate}</h2>
+                        <div style="opacity: 0.95; font-size: 1rem; margin-top: 6px; font-weight: 500;">Coima #${fine.fineId.slice(-8)}</div>
                     </div>
                     <button class="modal-close" onclick="this.closest('.modal-overlay').remove()" style="color: white;">×</button>
                 </div>
@@ -397,36 +397,36 @@ const UI = {
                 <div class="modal-body" style="padding: 0;">
                     
                     <!-- Status Badge -->
-                    <div style="padding: var(--spacing-lg); background: ${statusColors[fine.status]}15; border-bottom: 2px solid ${statusColors[fine.status]};">
-                        <div style="display: flex; align-items: center; justify-content: center; gap: var(--spacing-sm);">
-                            <div style="width: 12px; height: 12px; background: ${statusColors[fine.status]}; border-radius: 50%;"></div>
-                            <strong style="color: ${statusColors[fine.status]}; font-size: 1.1rem;">${fine.status}</strong>
+                    <div style="padding: 1.25rem; background: ${statusColors[fine.status]}15; border-bottom: 2px solid ${statusColors[fine.status]};">
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 0.75rem;">
+                            <div style="width: 14px; height: 14px; background: ${statusColors[fine.status]}; border-radius: 50%;"></div>
+                            <strong style="color: ${statusColors[fine.status]}; font-size: 1.2rem; font-weight: 700; letter-spacing: 0.5px;">${fine.status}</strong>
                         </div>
                     </div>
 
                     <!-- Informações Principais -->
-                    <div style="padding: var(--spacing-lg); display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--spacing-md);">
+                    <div style="padding: 1.5rem; display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.25rem;">
                         <div>
-                            <div style="color: var(--color-grey); font-size: var(--font-size-sm); margin-bottom: 4px;">📍 Lugar</div>
-                            <div style="font-weight: 600; color: var(--color-grey-dark);">${fine.spotId}</div>
-                            <div style="font-size: var(--font-size-sm); color: var(--color-grey); margin-top: 2px;">${fine.rua || 'Localização não especificada'}</div>
+                            <div style="color: #90A4AE; font-size: 0.8125rem; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">📍 Lugar</div>
+                            <div style="font-weight: 700; color: #37474F; font-size: 1.0625rem;">${fine.spotId}</div>
+                            <div style="font-size: 0.875rem; color: #90A4AE; margin-top: 4px; line-height: 1.4;">${fine.rua || 'Localização não especificada'}</div>
                         </div>
                         
                         <div>
-                            <div style="color: var(--color-grey); font-size: var(--font-size-sm); margin-bottom: 4px;">🕐 Data/Hora</div>
-                            <div style="font-weight: 600; color: var(--color-grey-dark);">${new Date(fine.timestamp).toLocaleDateString('pt-PT')}</div>
-                            <div style="font-size: var(--font-size-sm); color: var(--color-grey); margin-top: 2px;">${new Date(fine.timestamp).toLocaleTimeString('pt-PT')}</div>
+                            <div style="color: #90A4AE; font-size: 0.8125rem; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">🕐 Data/Hora</div>
+                            <div style="font-weight: 700; color: #37474F; font-size: 1.0625rem;">${new Date(fine.timestamp).toLocaleDateString('pt-PT')}</div>
+                            <div style="font-size: 0.875rem; color: #90A4AE; margin-top: 4px;">${new Date(fine.timestamp).toLocaleTimeString('pt-PT')}</div>
                         </div>
                         
                         <div>
-                            <div style="color: var(--color-grey); font-size: var(--font-size-sm); margin-bottom: 4px;">👤 Fiscal</div>
-                            <div style="font-weight: 600; color: var(--color-grey-dark);">${fine.fiscalNome}</div>
-                            <div style="font-size: var(--font-size-sm); color: var(--color-grey); margin-top: 2px;">ID: ${fine.fiscalId}</div>
+                            <div style="color: #90A4AE; font-size: 0.8125rem; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">👤 Fiscal</div>
+                            <div style="font-weight: 700; color: #37474F; font-size: 1.0625rem;">${fine.fiscalNome}</div>
+                            <div style="font-size: 0.875rem; color: #90A4AE; margin-top: 4px;">ID: ${fine.fiscalId}</div>
                         </div>
                         
                         <div>
-                            <div style="color: var(--color-grey); font-size: var(--font-size-sm); margin-bottom: 4px;">💰 Valor</div>
-                            <div style="font-weight: 600; color: var(--color-primary); font-size: 1.25rem;">50,00 €</div>
+                            <div style="color: #90A4AE; font-size: 0.8125rem; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">💰 Valor</div>
+                            <div style="font-weight: 700; color: #2196F3; font-size: 1.5rem; letter-spacing: -0.5px;">50,00 €</div>
                         </div>
                     </div>
 
@@ -449,9 +449,9 @@ const UI = {
                     
                     <!-- Fotografias -->
                     ${fine.photos && fine.photos.length > 0 ? `
-                        <div style="padding: var(--spacing-lg); background: var(--color-grey-light); border-top: 1px solid var(--color-grey);">
-                            <div style="color: var(--color-grey-dark); font-weight: 600; margin-bottom: var(--spacing-md); display: flex; align-items: center; gap: var(--spacing-xs);">
-                                <span style="font-size: 1.25rem;">📷</span>
+                        <div style="padding: 1.5rem; background: #F5F7FA; border-top: 1px solid #E0E0E0;">
+                            <div style="color: #37474F; font-weight: 700; font-size: 1.125rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                                <span style="font-size: 1.5rem;">📷</span>
                                 Fotografias (${fine.photos.length})
                             </div>
                             <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--spacing-md);">
@@ -497,6 +497,13 @@ const UI = {
         `;
 
         document.body.appendChild(overlay);
+
+        // Close on click outside modal
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                overlay.remove();
+            }
+        });
     },
 
     /**

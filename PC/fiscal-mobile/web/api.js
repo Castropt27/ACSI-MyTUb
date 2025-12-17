@@ -202,7 +202,7 @@ const API = {
         fine.history.push({
             status: fine.status,
             timestamp: new Date().toISOString(),
-            action: 'Criada (localStorage fallback)'
+            action: 'Criada'
         });
 
         fines.push(fine);
