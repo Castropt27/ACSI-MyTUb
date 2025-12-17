@@ -4,7 +4,8 @@ const WebSocket = require('ws');
 
 // Configuration
 const KAFKA_BROKERS = (process.env.KAFKA_BROKERS || 'localhost:9093').split(',');
-const KAFKA_TOPIC = process.env.KAFKA_TOPIC || 'notifications.irregularities';
+const KAFKA_TOPIC_IRREGULARITIES = process.env.KAFKA_TOPIC || 'notifications.irregularities';
+const KAFKA_TOPIC_SENSOR = 'sensor.raw'; // NEW: Topic for live sensor data
 const KAFKA_GROUP_ID = process.env.KAFKA_GROUP_ID || 'fiscal-bridge-group';
 const WS_PORT = parseInt(process.env.WS_PORT || '8081');
 
@@ -46,46 +47,105 @@ const kafka = new Kafka({
     brokers: KAFKA_BROKERS,
 });
 
-const consumer = kafka.consumer({ groupId: KAFKA_GROUP_ID });
+const consumerIrregularities = kafka.consumer({ groupId: KAFKA_GROUP_ID });
+const consumerSensor = kafka.consumer({ groupId: `${KAFKA_GROUP_ID}-sensor` });
 
 /**
- * Main function to start Kafka consumer and WebSocket bridge
+ * Start sensor.raw consumer (live spot updates)
  */
-async function start() {
+async function startSensorConsumer() {
     try {
-        console.log('🚀 Starting myTUB Fiscal Bridge...');
-        console.log(`📡 Kafka Brokers: ${KAFKA_BROKERS.join(', ')}`);
-        console.log(`📋 Topic: ${KAFKA_TOPIC}`);
-        console.log(`🔌 WebSocket Port: ${WS_PORT}`);
-        console.log(`🚨 Consuming infractions from PC2 backend...`);
+        console.log('🔌 Starting sensor.raw consumer...');
 
-        // Connect to Kafka
-        await consumer.connect();
-        console.log('✅ Connected to Kafka');
+        await consumerSensor.connect();
+        await consumerSensor.subscribe({ topic: KAFKA_TOPIC_SENSOR, fromBeginning: false });
 
-        // Subscribe to topic
-        await consumer.subscribe({ topic: KAFKA_TOPIC, fromBeginning: false });
-        console.log(`✅ Subscribed to topic: ${KAFKA_TOPIC}`);
+        console.log(`✅ Subscribed to topic: ${KAFKA_TOPIC_SENSOR}`);
 
-        // Process messages
-        await consumer.run({
+        await consumerSensor.run({
             eachMessage: async ({ topic, partition, message }) => {
                 try {
-                    // Parse Kafka message (infraction event from PC2)
+                    const rawValue = message.value.toString();
+                    const sensorData = JSON.parse(rawValue);
+
+                    console.log(`📍 Sensor update: Spot ${sensorData.id} - ${sensorData.ocupado ? 'OCUPADO' : 'LIVRE'}`);
+
+                    // FIXED GPS COORDINATES (hardcoded para Praça do Comércio)
+                    const FIXED_GPS = {
+                        lat: 41.55387813,
+                        lng: -8.42743078
+                    };
+
+                    // Create WebSocket message for frontend
+                    const wsMessage = {
+                        type: 'SENSOR_UPDATE',
+                        spotId: sensorData.id,
+                        ocupado: sensorData.ocupado,
+                        timestamp: sensorData.timestamp,
+                        gps: {
+                            lat: sensorData.gps_lat || FIXED_GPS.lat,  // Use sensor GPS or fixed
+                            lng: sensorData.gps_lng || FIXED_GPS.lng
+                        },
+                        rua: sensorData.rua || 'Praça do Comércio',
+                        zone: sensorData.zone || 'A1'
+                    };
+
+                    console.log(`📤 Broadcasting sensor update to ${clients.size} client(s)`);
+                    console.log(`   GPS: ${wsMessage.gps.lat}, ${wsMessage.gps.lng}`);
+                    broadcast(wsMessage);
+
+                } catch (error) {
+                    console.error('❌ Error processing sensor message:', error);
+                }
+            }
+        });
+
+        console.log('✅ Sensor consumer running');
+
+    } catch (error) {
+        console.error('❌ Error starting sensor consumer:', error);
+    }
+}
+
+/**
+ * Start irregularities consumer
+ */
+async function startIrregularitiesConsumer() {
+    try {
+        console.log('🚨 Starting irregularities consumer...');
+
+        await consumerIrregularities.connect();
+        await consumerIrregularities.subscribe({ topic: KAFKA_TOPIC_IRREGULARITIES, fromBeginning: true });
+
+        console.log(`✅ Subscribed to topic: ${KAFKA_TOPIC_IRREGULARITIES} (compacted - from beginning)`);
+
+        await consumerIrregularities.run({
+            eachMessage: async ({ topic, partition, message }) => {
+                try {
                     const rawValue = message.value.toString();
                     const infractionData = JSON.parse(rawValue);
 
                     console.log(`📨 Received infraction from Kafka: ${rawValue}`);
 
-                    // Extract infraction fields from PC2 format
                     const { type, spot_id, ocupado, timestamp, message: messageText } = infractionData;
 
-                    // Calculate minutes occupied from timestamp
+                    // Handle IRREGULARITY_RESOLVED - remove alert
+                    if (type === 'IRREGULARITY_RESOLVED') {
+                        const wsMessage = {
+                            type: 'IRREGULARITY_RESOLVED',
+                            spotId: spot_id,
+                            timestamp: timestamp || new Date().toISOString(),
+                            message: messageText || `Lugar ${spot_id} resolvido`
+                        };
+                        console.log(`✅ Broadcast RESOLVED for spot ${spot_id}`);
+                        broadcast(wsMessage);
+                        return; // Exit early
+                    }
+
                     const occupiedSince = new Date(timestamp);
                     const now = new Date();
                     const minutesOccupied = Math.floor((now - occupiedSince) / (1000 * 60));
 
-                    // Create WebSocket message for frontend
                     const wsMessage = {
                         type: type || 'IRREGULARITY_DETECTED',
                         spotId: spot_id,
@@ -95,18 +155,39 @@ async function start() {
                         message: messageText
                     };
 
-                    console.log(`📤 Broadcasting to ${clients.size} WebSocket client(s): ${JSON.stringify(wsMessage)}`);
-
-                    // Broadcast to all connected clients
+                    console.log(`📤 Broadcasting infraction to ${clients.size} client(s)`);
                     broadcast(wsMessage);
 
                 } catch (error) {
-                    console.error('❌ Error processing Kafka message:', error);
+                    console.error('❌ Error processing infraction message:', error);
                 }
             },
         });
 
-        console.log('✅ Kafka consumer running. Waiting for infractions...');
+        console.log('✅ Irregularities consumer running');
+
+    } catch (error) {
+        console.error('❌ Error starting irregularities consumer:', error);
+    }
+}
+
+/**
+ * Main function to start both Kafka consumers and WebSocket bridge
+ */
+async function start() {
+    try {
+        console.log('🚀 Starting myTUB Fiscal Bridge...');
+        console.log(`📡 Kafka Brokers: ${KAFKA_BROKERS.join(', ')}`);
+        console.log(`📋 Topics: ${KAFKA_TOPIC_SENSOR}, ${KAFKA_TOPIC_IRREGULARITIES}`);
+        console.log(`🔌 WebSocket Port: ${WS_PORT}`);
+
+        // Start both consumers
+        await Promise.all([
+            startSensorConsumer(),
+            startIrregularitiesConsumer()
+        ]);
+
+        console.log('✅ All consumers running. Waiting for messages...');
         console.log(`✅ WebSocket server running on ws://localhost:${WS_PORT}`);
 
     } catch (error) {
@@ -119,11 +200,12 @@ async function start() {
 async function shutdown() {
     console.log('\n🛑 Shutting down...');
     try {
-        await consumer.disconnect();
+        await consumerIrregularities.disconnect();
+        await consumerSensor.disconnect();
         wss.close(() => {
             console.log('✅ WebSocket server closed');
         });
-        console.log('✅ Kafka consumer disconnected');
+        console.log('✅ Kafka consumers disconnected');
         process.exit(0);
     } catch (error) {
         console.error('❌ Error during shutdown:', error);
@@ -136,3 +218,4 @@ process.on('SIGTERM', shutdown);
 
 // Start the bridge
 start();
+

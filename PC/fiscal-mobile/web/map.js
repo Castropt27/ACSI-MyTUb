@@ -74,9 +74,30 @@ const MapModule = {
 
         // Create/update marker
         if (this.spotMarkers[spotId]) {
-            // Update existing marker
-            this.spotMarkers[spotId].marker.setLatLng([lat, lng]);
-            this.spotMarkers[spotId].marker.getElement().querySelector('div').style.background = color;
+            console.log(`🔄 Updating existing marker for spot ${spotId} - New state: ${state}, Color: ${color}`);
+
+            // Remove old marker
+            this.map.removeLayer(this.spotMarkers[spotId].marker);
+
+            // Create new marker with updated color
+            const spotIcon = L.divIcon({
+                className: 'spot-marker',
+                html: `<div style="background: ${color}; width: 16px; height: 16px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.2);"></div>`,
+                iconSize: [20, 20],
+                iconAnchor: [10, 10]
+            });
+
+            const marker = L.marker([lat, lng], { icon: spotIcon })
+                .addTo(this.map)
+                .bindPopup(`
+                    <strong>${spotId}</strong><br>
+                    ${rua || 'Sem rua'}<br>
+                    Estado: <span style="color: ${color}; font-weight: bold;">${state || 'desconhecido'}</span>
+                `);
+
+            this.spotMarkers[spotId].marker = marker;
+            this.spotMarkers[spotId].spot = spot;
+            console.log(`✅ Marker updated!`);
         } else {
             // Create new marker
             const spotIcon = L.divIcon({

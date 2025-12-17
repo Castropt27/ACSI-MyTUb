@@ -87,6 +87,14 @@ function handleBackendEvent(event) {
     const { type } = event;
 
     switch (type) {
+        case 'SENSOR_UPDATE':
+            handleSensorUpdate(event);
+            break;
+
+        case 'IRREGULARITY_RESOLVED':
+            handleIrregularityResolved(event);
+            break;
+
         case 'IRREGULARITY_DETECTED':
             handleIrregularityDetected(event);
             break;
@@ -113,6 +121,83 @@ function handleBackendEvent(event) {
         default:
             console.warn('Unknown event type:', type);
     }
+}
+
+/**
+ * Handle SENSOR_UPDATE event
+ * Live sensor data from Kafka sensor.raw
+ */
+function handleSensorUpdate(event) {
+    const { spotId, ocupado, timestamp, gps, rua, zone } = event;
+
+    console.log(`📍 Sensor update: Spot ${spotId} - ${ocupado ? 'OCUPADO 🔴' : 'LIVRE 🟢'}`);
+    console.log(`📍 GPS: lat=${gps?.lat}, lng=${gps?.lng}`);
+
+    // Validate GPS coordinates
+    if (!gps || !gps.lat || !gps.lng) {
+        console.error('❌ Invalid GPS coordinates:', gps);
+        return;
+    }
+
+    // Update or create spot in state
+    if (!window.appState.spots[spotId]) {
+        window.appState.spots[spotId] = {
+            spotId,
+            rua: rua || `Lugar ${spotId}`,
+            lat: gps.lat,
+            lng: gps.lng,
+            zone: zone || 'unknown',
+            state: ocupado ? 'occupied' : 'free',
+            lastUpdate: timestamp,
+            hasValidSession: false
+        };
+        console.log(`✅ Created new spot in state:`, window.appState.spots[spotId]);
+    } else {
+        // Update existing spot
+        window.appState.spots[spotId].state = ocupado ? 'occupied' : 'free';
+        window.appState.spots[spotId].lastUpdate = timestamp;
+        if (gps && gps.lat && gps.lng) {
+            window.appState.spots[spotId].lat = gps.lat;
+            window.appState.spots[spotId].lng = gps.lng;
+        }
+        console.log(`✅ Updated spot in state:`, window.appState.spots[spotId]);
+    }
+
+    // Update map marker (only if map is initialized)
+    if (MapModule.map) {
+        console.log(`🗺️ Updating marker on map for spot ${spotId}`);
+        updateSpotOnMap(spotId);
+    } else {
+        console.warn(`⚠️ Map not initialized yet, marker will be added when tab is opened`);
+    }
+
+    // NO TOAST for normal state changes - only for irregularities!
+}
+
+
+
+/**
+ * Handle IRREGULARITY_RESOLVED event
+ * Irregularity resolved - remove from list
+ */
+function handleIrregularityResolved(event) {
+    const { spotId, timestamp, message } = event;
+
+    console.log(`✅ Irregularity RESOLVED for spot ${spotId}`);
+
+    // Remove from irregularities state
+    if (window.appState.irregularities[spotId]) {
+        delete window.appState.irregularities[spotId];
+        console.log(`   Removed spot ${spotId} from irregularities`);
+    }
+
+    // Update UI if on irregularities tab
+    if (window.appRouter.currentTab === 'irregularidades') {
+        UI.renderIrregularidadesTab();
+    }
+
+    // Optional: Show success toast
+    // UI.showToast(`✅ Lugar ${spotId} agora livre`, 'success');
 }
 
 /**
@@ -243,9 +328,20 @@ function handleFineEvent(event) {
  */
 function updateSpotOnMap(spotId) {
     const spot = window.appState.spots[spotId];
-    if (spot && MapModule.map) {
-        MapModule.updateSpotMarker(spot);
+    console.log(`🗺️ updateSpotOnMap called for spot ${spotId}:`, spot);
+
+    if (!spot) {
+        console.error(`❌ Spot ${spotId} not found in appState`);
+        return;
     }
+
+    if (!MapModule.map) {
+        console.warn(`⚠️ Map not initialized, cannot add marker for spot ${spotId}`);
+        return;
+    }
+
+    console.log(`✅ Calling MapModule.updateSpotMarker for spot ${spotId}`);
+    MapModule.updateSpotMarker(spot);
 }
 
 /**
