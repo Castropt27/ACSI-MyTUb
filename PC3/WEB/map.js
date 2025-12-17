@@ -10,6 +10,7 @@ const MapModule = {
      * Initialize the Leaflet map centered on Praça do Comércio, Braga
      */
     init(containerId = 'map') {
+        if (this.map) return this.map;
         // Create map centered on Praça do Comércio, Braga
         this.map = L.map(containerId, {
             zoomControl: true,
@@ -36,6 +37,7 @@ const MapModule = {
         let color = '#6C757D'; // grey (unknown)
         if (estado === 'LIVRE') color = '#4CAF50'; // green
         if (estado === 'OCUPADO') color = '#F44336'; // red
+        if (estado === 'GRACE' || estado === 'AMARELO') color = '#F57F17'; // yellow (warning)
 
         // Create/update marker
         if (this.spotMarkers[id]) {

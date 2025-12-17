@@ -267,6 +267,98 @@
   <!-- Toast Notification -->
   <div id="toast" class="toast hidden"></div>
 
+  <!-- Extension Warning Modal -->
+  <div id="extension-warning-modal" class="modal hidden" style="z-index: 2000;">
+    <div class="modal-content warning-modal">
+      <div class="warning-icon">⚠️</div>
+      <h3>Atenção!</h3>
+      <p>O seu tempo de estacionamento termina em <strong>5 minutos</strong>.</p>
+      <p>Deseja estender o tempo?</p>
+      <div class="modal-actions">
+        <button id="btn-extend-no" class="btn-secondary">Não</button>
+        <button id="btn-extend-yes" class="btn-primary">Sim, estender</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Extension Selection Modal -->
+  <div id="extension-selection-modal" class="modal hidden" style="z-index: 2000;">
+    <div class="modal-content selection-modal">
+      <h3>Estender Estacionamento</h3>
+      <p>Selecione o tempo adicional:</p>
+      <div class="time-options">
+        <button class="time-btn" data-time="15">+15 min<br><small>0.30€</small></button>
+        <button class="time-btn" data-time="30">+30 min<br><small>0.60€</small></button>
+        <button class="time-btn" data-time="60">+1h<br><small>1.20€</small></button>
+      </div>
+
+      <!-- Custom Time Option -->
+      <div class="custom-extension-container">
+        <p class="custom-label">Ou escolha outro tempo:</p>
+        <div class="custom-input-group">
+          <input type="number" id="custom-extension-input" placeholder="Min" min="1">
+          <button id="btn-custom-extension">OK</button>
+        </div>
+      </div>
+
+      <button id="btn-cancel-extension" class="btn-text"
+        style="background:none; border:none; text-decoration:underline; cursor:pointer; color: var(--color-grey);">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- Extension Payment Method Modal -->
+  <div id="extension-method-modal" class="modal hidden" style="z-index: 2050;">
+    <div class="method-card">
+      <div class="method-card-header">
+        <h3>Pagamento</h3>
+        <button id="close-extension-method-modal" class="close-btn">×</button>
+      </div>
+      <div class="method-list">
+        <button class="method-option" id="ext-method-applepay">
+          <span class="method-name">Apple Pay</span>
+        </button>
+        <button class="method-option" id="ext-method-mbway">
+          <span class="method-name">MB WAY</span>
+        </button>
+        <button class="method-option" id="ext-method-card">
+          <span class="method-name">Cartão Bancário</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Extension MB WAY Modal -->
+  <div id="extension-mbway-modal" class="modal hidden" style="z-index: 2060;">
+    <div class="method-card">
+      <div class="method-card-header">
+        <h3>MB WAY</h3>
+        <button id="close-extension-mbway-modal" class="close-btn">×</button>
+      </div>
+      <div class="mbway-form">
+        <div class="form-group">
+          <label for="extension-mbway-phone">Número de Telemóvel</label>
+          <input type="tel" id="extension-mbway-phone" placeholder="912 345 678" maxlength="13">
+        </div>
+        <button id="extension-mbway-confirm" class="btn-primary btn-full" style="width:100%">Confirmar
+          Pagamento</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Extension Processing Modal -->
+  <div id="extension-processing-modal" class="modal hidden" style="z-index: 2070;">
+    <div class="modal-content" style="text-align: center;">
+      <h3>A Processar...</h3>
+      <div style="font-size: 3rem; margin: 20px 0;">⏳</div>
+      <p>A aguardar confirmação do pagamento.</p>
+      <div class="warning-box"
+        style="margin-top: 20px; background: #FFF3E0; padding: 10px; border-radius: 8px; border: 1px solid #FFE0B2;">
+        <p style="color: #E65100; font-size: 0.9rem;">⚠️ Tem até ao fim do tempo da sessão atual para concluir o
+          pagamento.</p>
+      </div>
+    </div>
+  </div>
+
 
 
   </div>
@@ -284,6 +376,7 @@
   <script src="payment.js"></script>
   <script src="mbway.js"></script>
   <script src="main.js"></script>
+  <script src="extension.js"></script>
 </body>
 
 </html>

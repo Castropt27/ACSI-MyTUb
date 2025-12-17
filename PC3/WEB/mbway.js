@@ -69,6 +69,12 @@ const MbWayModule = (function () {
 
         // Show warnings/processing immediately
         showToast(`Pedido enviado para ${phone}. Tem 5 minutos para confirmar na app MB WAY.`, "success", 5000);
+
+        // Save phone to session (global)
+        if (typeof sessaoPendente !== 'undefined' && sessaoPendente) {
+            sessaoPendente.telemovel = phoneDigits;
+        }
+
         fecharModalMBWay();
 
         // Submit to Backend
@@ -115,13 +121,17 @@ const MbWayModule = (function () {
 
         // 2. Wait 6 seconds then show success (Simulated flow as requested)
         setTimeout(() => {
-            showToast(`Método selecionado: MB WAY. Pagamento confirmado.`, "success");
+            if (typeof window.finishParkingSession === 'function') {
+                window.finishParkingSession("MB WAY");
+            } else {
+                showToast(`Método selecionado: MB WAY. Pagamento confirmado.`, "success");
 
-            // Close parent payment screen if it exists (dependency on PaymentModule or global function)
-            if (window.PaymentModule && typeof window.PaymentModule.fecharEcraPagamento === 'function') {
-                window.PaymentModule.fecharEcraPagamento();
-            } else if (typeof fecharEcraPagamento === 'function') {
-                fecharEcraPagamento();
+                // Close parent payment screen if it exists (dependency on PaymentModule or global function)
+                if (window.PaymentModule && typeof window.PaymentModule.fecharEcraPagamento === 'function') {
+                    window.PaymentModule.fecharEcraPagamento();
+                } else if (typeof fecharEcraPagamento === 'function') {
+                    fecharEcraPagamento();
+                }
             }
         }, 6000);
     }
