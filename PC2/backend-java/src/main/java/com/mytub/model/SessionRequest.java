@@ -11,7 +11,7 @@ public class SessionRequest {
     @NotBlank
     private String licensePlate;
 
-    @Min(5)
+    @Min(0)
     @Max(1440)
     private int durationMinutes; // minutos
 

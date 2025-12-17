@@ -71,29 +71,62 @@ public class SessionsController {
     }
 
     @GetMapping("/sessions/{sessionId}")
-    public ResponseEntity<SessionDto> get(@PathVariable String sessionId) {
+    public ResponseEntity<SessionDto> get(@PathVariable("sessionId") String sessionId) {
         List<SessionDto> list = jdbcTemplate.query("SELECT * FROM parking_sessions WHERE session_id = ?", new SessionRowMapper(), sessionId);
         if (list.isEmpty()) return ResponseEntity.notFound().build();
         return ResponseEntity.ok(list.get(0));
     }
 
     @PutMapping("/sessions/{sessionId}/extend")
-    public ResponseEntity<SessionDto> extend(@PathVariable String sessionId, @RequestParam int additionalMinutes) {
+    public ResponseEntity<SessionDto> extend(@PathVariable("sessionId") String sessionId, @RequestParam("additionalMinutes") int additionalMinutes) {
         jdbcTemplate.update("UPDATE parking_sessions SET end_time = end_time + (INTERVAL '1 minute' * ?) , updated_at = NOW() WHERE session_id = ? AND status = 'ACTIVE'", additionalMinutes, sessionId);
         return get(sessionId);
     }
 
+    @PostMapping("/sessions/{sessionId}/renew")
+    public ResponseEntity<SessionDto> renew(
+            @PathVariable("sessionId") String sessionId,
+            @RequestParam("additionalMinutes") int additionalMinutes,
+            @RequestParam(value = "metodo", required = false) String metodo,
+            @RequestParam(value = "telemovel", required = false) String telemovel
+    ) {
+        // Allow renew if ACTIVE or within GRACE window
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("SELECT status, actual_end_time FROM parking_sessions WHERE session_id = ?", sessionId);
+        if (rows.isEmpty()) return ResponseEntity.notFound().build();
+        String status = (String) rows.get(0).get("status");
+        Object actualEnd = rows.get(0).get("actual_end_time");
+
+        if ("ACTIVE".equals(status)) {
+            jdbcTemplate.update(
+                    "UPDATE parking_sessions SET end_time = end_time + (INTERVAL '1 minute' * ?), payment_method = COALESCE(?, payment_method), phone = COALESCE(?, phone), updated_at = NOW() WHERE session_id = ?",
+                    additionalMinutes, metodo, telemovel, sessionId
+            );
+            return get(sessionId);
+        }
+
+        if ("GRACE".equals(status)) {
+            // Renew during grace -> extend and set status back to ACTIVE
+            jdbcTemplate.update(
+                    "UPDATE parking_sessions SET end_time = end_time + (INTERVAL '1 minute' * ?), status = 'ACTIVE', payment_method = COALESCE(?, payment_method), phone = COALESCE(?, phone), updated_at = NOW() WHERE session_id = ?",
+                    additionalMinutes, metodo, telemovel, sessionId
+            );
+            return get(sessionId);
+        }
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).build();
+    }
+
     @DeleteMapping("/sessions/{sessionId}")
-    public ResponseEntity<Void> cancel(@PathVariable String sessionId) {
+    public ResponseEntity<Void> cancel(@PathVariable("sessionId") String sessionId) {
         int rows = jdbcTemplate.update("UPDATE parking_sessions SET status = 'CANCELLED', actual_end_time = NOW(), updated_at = NOW() WHERE session_id = ? AND status = 'ACTIVE'", sessionId);
         if (rows == 0) return ResponseEntity.notFound().build();
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/sessions/active")
-    public ResponseEntity<Map<String, Object>> active(@RequestParam String spotId) {
+    public ResponseEntity<Map<String, Object>> active(@RequestParam("spotId") String spotId) {
         List<SessionDto> list = jdbcTemplate.query(
-                "SELECT * FROM parking_sessions WHERE spot_id = ? AND status = 'ACTIVE' AND end_time > NOW() ORDER BY start_time DESC LIMIT 1",
+            "SELECT * FROM parking_sessions WHERE spot_id = ? AND status = 'ACTIVE' AND end_time > NOW() ORDER BY start_time DESC LIMIT 1",
                 new SessionRowMapper(), spotId);
         Map<String, Object> res = new HashMap<>();
         res.put("timestamp", Instant.now().toString());
