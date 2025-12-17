@@ -4,6 +4,7 @@ import com.mytub.model.SessionRequest;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -22,6 +23,9 @@ public class SessionsController {
 
     private static final Logger log = LoggerFactory.getLogger(SessionsController.class);
     private final JdbcTemplate jdbcTemplate;
+
+    @Value("${sessions.renew.tolerance.seconds}")
+    private int renewToleranceSeconds;
 
     public SessionsController(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
@@ -84,36 +88,80 @@ public class SessionsController {
     }
 
     @PostMapping("/sessions/{sessionId}/renew")
-    public ResponseEntity<SessionDto> renew(
+    public ResponseEntity<?> renew(
             @PathVariable("sessionId") String sessionId,
             @RequestParam("additionalMinutes") int additionalMinutes,
             @RequestParam(value = "metodo", required = false) String metodo,
             @RequestParam(value = "telemovel", required = false) String telemovel
     ) {
-        // Allow renew if ACTIVE or within GRACE window
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList("SELECT status, actual_end_time FROM parking_sessions WHERE session_id = ?", sessionId);
+        // Get session info
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+            "SELECT spot_id, status, actual_end_time, EXTRACT(EPOCH FROM (NOW() - COALESCE(actual_end_time, end_time))) as seconds_since_end FROM parking_sessions WHERE session_id = ?", 
+            sessionId
+        );
         if (rows.isEmpty()) return ResponseEntity.notFound().build();
+        
+        String spotId = (String) rows.get(0).get("spot_id");
         String status = (String) rows.get(0).get("status");
-        Object actualEnd = rows.get(0).get("actual_end_time");
+        Number secondsSinceEnd = (Number) rows.get(0).get("seconds_since_end");
+        double elapsed = secondsSinceEnd != null ? secondsSinceEnd.doubleValue() : 0;
+
+        // Check if fine was already created for this spot
+        Integer fineCount = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM fines WHERE spot_id = ? AND status IN ('Emitida', 'Notificada') AND created_at > NOW() - INTERVAL '5 minutes'",
+            Integer.class,
+            spotId
+        );
+        
+        if (fineCount != null && fineCount > 0) {
+            log.warn("Renewal blocked for session {} - fine already created for spot {}", sessionId, spotId);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "FINE_ALREADY_ISSUED");
+            error.put("message", "Não é possível renovar. Coima já emitida para este lugar.");
+            error.put("spot_id", spotId);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+        }
 
         if ("ACTIVE".equals(status)) {
             jdbcTemplate.update(
                     "UPDATE parking_sessions SET end_time = end_time + (INTERVAL '1 minute' * ?), payment_method = COALESCE(?, payment_method), phone = COALESCE(?, phone), updated_at = NOW() WHERE session_id = ?",
                     additionalMinutes, metodo, telemovel, sessionId
             );
-            return get(sessionId);
+            log.info("Renewed ACTIVE session {} with +{} minutes", sessionId, additionalMinutes);
+            return ResponseEntity.ok(get(sessionId).getBody());
         }
 
         if ("GRACE".equals(status)) {
-            // Renew during grace -> extend and set status back to ACTIVE
             jdbcTemplate.update(
                     "UPDATE parking_sessions SET end_time = end_time + (INTERVAL '1 minute' * ?), status = 'ACTIVE', payment_method = COALESCE(?, payment_method), phone = COALESCE(?, phone), updated_at = NOW() WHERE session_id = ?",
                     additionalMinutes, metodo, telemovel, sessionId
             );
-            return get(sessionId);
+            log.info("Renewed GRACE session {} with +{} minutes, restored to ACTIVE", sessionId, additionalMinutes);
+            return ResponseEntity.ok(get(sessionId).getBody());
         }
 
-        return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        // Allow renew of EXPIRED sessions within tolerance window (even after irregularity sent)
+        if ("EXPIRED".equals(status) && elapsed <= renewToleranceSeconds) {
+            jdbcTemplate.update(
+                    "UPDATE parking_sessions SET end_time = NOW() + (INTERVAL '1 minute' * ?), status = 'ACTIVE', payment_method = COALESCE(?, payment_method), phone = COALESCE(?, phone), updated_at = NOW() WHERE session_id = ?",
+                    additionalMinutes, metodo, telemovel, sessionId
+            );
+            
+            // Clear sent_irregularities to make irregularity disappear from fiscal view
+            jdbcTemplate.update(
+                "DELETE FROM sent_irregularities WHERE spot_id = ? AND occupied_since IN (SELECT timestamp FROM latest_sensor_readings WHERE sensor_id = ?)",
+                spotId, spotId
+            );
+            
+            log.info("Renewed EXPIRED session {} ({}s late) with +{} minutes, restored to ACTIVE, cleared irregularity", sessionId, (int)elapsed, additionalMinutes);
+            return ResponseEntity.ok(get(sessionId).getBody());
+        }
+
+        log.warn("Renewal rejected for session {} - status={}, elapsed={}s (tolerance={}s)", sessionId, status, (int)elapsed, renewToleranceSeconds);
+        Map<String, Object> error = new HashMap<>();
+        error.put("error", "RENEWAL_EXPIRED");
+        error.put("message", "Tempo de renovação expirado. Contacte o fiscal.");
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
     @DeleteMapping("/sessions/{sessionId}")

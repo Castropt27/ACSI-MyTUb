@@ -222,7 +222,7 @@ public class FinesController {
     }
 
     @GetMapping("/fines/{fineId}")
-    public ResponseEntity<Fine> getFine(@PathVariable String fineId) {
+    public ResponseEntity<Fine> getFine(@PathVariable("fineId") String fineId) {
         List<Fine> results = jdbcTemplate.query(
             "SELECT * FROM fines WHERE fine_id = ?",
             new FineRowMapper(),
@@ -238,9 +238,9 @@ public class FinesController {
 
     @GetMapping("/fines")
     public ResponseEntity<Map<String, Object>> listFines(
-        @RequestParam(required = false) String status,
-        @RequestParam(required = false) String fiscalId,
-        @RequestParam(required = false) String spotId
+        @RequestParam(value = "status", required = false) String status,
+        @RequestParam(value = "fiscalId", required = false) String fiscalId,
+        @RequestParam(value = "spotId", required = false) String spotId
     ) {
         StringBuilder sql = new StringBuilder("SELECT * FROM fines WHERE 1=1");
         List<Object> params = new ArrayList<>();
@@ -271,7 +271,7 @@ public class FinesController {
     }
 
     @GetMapping("/fines/fiscal/{fiscalId}")
-    public ResponseEntity<Map<String, Object>> listFinesByFiscal(@PathVariable String fiscalId) {
+    public ResponseEntity<Map<String, Object>> listFinesByFiscal(@PathVariable("fiscalId") String fiscalId) {
         List<Fine> fines = jdbcTemplate.query(
             "SELECT * FROM fines WHERE fiscal_id = ? ORDER BY issue_timestamp DESC",
             new FineRowMapper(),
@@ -288,7 +288,7 @@ public class FinesController {
 
     @PutMapping("/fines/{fineId}")
     public ResponseEntity<Fine> updateFine(
-        @PathVariable String fineId,
+        @PathVariable("fineId") String fineId,
         @Valid @RequestBody FineUpdateRequest request
     ) {
         // Get current fine
@@ -357,7 +357,7 @@ public class FinesController {
     }
 
     @DeleteMapping("/fines/{fineId}")
-    public ResponseEntity<Void> deleteFine(@PathVariable String fineId) {
+    public ResponseEntity<Void> deleteFine(@PathVariable("fineId") String fineId) {
         int rows = jdbcTemplate.update("DELETE FROM fines WHERE fine_id = ?", fineId);
         
         if (rows == 0) {
@@ -369,7 +369,7 @@ public class FinesController {
     }
 
     @GetMapping("/fiscal/verify/{spotId}")
-    public ResponseEntity<Map<String, Object>> verifySpot(@PathVariable String spotId) {
+    public ResponseEntity<Map<String, Object>> verifySpot(@PathVariable("spotId") String spotId) {
         // Get spot info
         List<Map<String, Object>> spotResults = jdbcTemplate.queryForList(
             """
