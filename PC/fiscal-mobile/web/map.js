@@ -67,6 +67,14 @@ const MapModule = {
     updateSpotMarker(spot) {
         const { spotId, lat, lng, state, rua } = spot;
 
+        // VALIDATE GPS coordinates before proceeding
+        if (!lat || !lng || isNaN(parseFloat(lat)) || isNaN(parseFloat(lng))) {
+            console.error(`❌ Invalid GPS coordinates for spot ${spotId}:`, { lat, lng, spot });
+            return;  // Exit early - cannot create marker without valid GPS
+        }
+
+        console.log(`🗺️ Valid GPS: lat=${lat}, lng=${lng}, state=${state}`);
+
         // Determine marker color based on state
         let color = '#6C757D'; // grey (unknown)
         if (state === 'free') color = '#28A745'; // green

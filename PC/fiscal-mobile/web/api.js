@@ -19,7 +19,8 @@ const API = {
      */
     async getFines(fiscalId) {
         try {
-            const response = await fetch(`${this.config.BACKEND_URL}/api/fines/fiscal/${fiscalId}`);
+            // PC2 backend endpoint: GET /api/fines (returns all fines, not filtered by fiscal)
+            const response = await fetch(`${this.config.BACKEND_URL}/api/fines`);
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -28,7 +29,8 @@ const API = {
             const data = await response.json();
 
             // Transform backend format to frontend format
-            return data.fines.map(fine => ({
+            // Filter by fiscalId if needed (PC2 returns all fines)
+            const allFines = (data.fines || data || []).map(fine => ({
                 fineId: fine.fine_id,
                 spotId: fine.spot_id,
                 plate: fine.license_plate || 'N/D',
@@ -40,15 +42,20 @@ const API = {
                     lng: fine.gps_lng,
                     accuracy: 10 // Default value
                 },
-                photos: fine.photo_url ? [{
+                photos: fine.photos ? fine.photos.map(url => ({
                     name: 'photo.jpg',
-                    dataUrl: fine.photo_url
-                }] : [],
+                    dataUrl: url  // URL from PC2 upload
+                })) : [],
                 observations: fine.reason || '',
                 status: fine.status,
                 history: fine.history || [],
                 rua: fine.location_address || ''
             }));
+
+            // Filter by fiscalId on frontend (if PC2 doesn't filter)
+            // return fiscalId ? allFines.filter(f => f.fiscalId === fiscalId) : allFines;
+            return allFines;  // Return all for now
+
         } catch (error) {
             console.error('Error fetching fines:', error);
             // Fallback to localStorage if backend fails
@@ -64,28 +71,62 @@ const API = {
         console.log('📋 [API] Dados recebidos:', fine);
 
         try {
-            // Convert photos to base64 array (extract data URLs)
-            console.log('🖼️ [API] Processando fotos...', fine.photos);
-            const photosBase64 = fine.photos && fine.photos.length > 0
-                ? fine.photos.map(photo => photo.dataUrl)
-                : [];
-            console.log(`✅ [API] ${photosBase64.length} foto(s) processada(s)`);
+            // Step 1: Upload images to PC2 if there are photos
+            let imageUrls = [];
 
+            if (fine.photos && fine.photos.length > 0) {
+                console.log(`🖼️ [API] Uploading ${fine.photos.length} foto(s) para PC2...`);
+
+                try {
+                    // Convert dataURLs to Blobs and create FormData
+                    const formData = new FormData();
+
+                    for (let i = 0; i < fine.photos.length; i++) {
+                        const photo = fine.photos[i];
+                        // Convert base64 dataURL to Blob
+                        const blob = await fetch(photo.dataUrl).then(r => r.blob());
+                        formData.append('files', blob, `photo_${i}.jpg`);
+                    }
+
+                    console.log(`📤 [API] Enviando imagens para ${this.config.BACKEND_URL}/api/images/upload`);
+
+                    const uploadResponse = await fetch(`${this.config.BACKEND_URL}/api/images/upload`, {
+                        method: 'POST',
+                        body: formData  // Don't set Content-Type - browser sets it with boundary
+                    });
+
+                    if (!uploadResponse.ok) {
+                        throw new Error(`Image upload failed: ${uploadResponse.status}`);
+                    }
+
+                    const uploadResult = await uploadResponse.json();
+                    imageUrls = uploadResult.urls || [];
+
+                    console.log(`✅ [API] Imagens uploaded com sucesso:`, imageUrls);
+
+                } catch (uploadError) {
+                    console.error('❌ [API] Erro ao fazer upload de imagens:', uploadError);
+                    // Continue sem imagens se o upload falhar
+                    imageUrls = [];
+                }
+            }
+
+            // Step 2: Create fine with image URLs
             const payload = {
-                spot_id: fine.spotId,
-                fiscal_id: fine.fiscalId,
-                fiscal_name: fine.fiscalNome,
-                license_plate: fine.plate,
+                spotId: fine.spotId,
+                fiscalId: fine.fiscalId,
+                fiscalName: fine.fiscalNome,
+                licensePlate: fine.plate,
                 reason: fine.observations || "Estacionamento sem sessão de pagamento válida",
                 amount: this.config.DEFAULT_FINE_AMOUNT,
-                photos: photosBase64,
+                photoBase64: imageUrls.length > 0 ? imageUrls[0] : null,  // First URL for backward compatibility
+                photos: imageUrls,  // Array of URLs (not base64!)
                 notes: fine.observations || null
-                // GPS e location_address são buscados automaticamente pelo backend via spot_id
             };
 
             console.log('📦 [API] Payload preparado:', {
                 ...payload,
-                photos: `[${payload.photos.length} foto(s)]` // Não mostrar base64 completo
+                photos: `[${payload.photos.length} URL(s)]`
             });
             console.log(`🌐 [API] Enviando POST para: ${this.config.BACKEND_URL}/api/fines`);
 
@@ -101,12 +142,24 @@ const API = {
 
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error('❌ [API] Erro HTTP:', {
+
+                // Try to parse JSON error
+                let errorDetail = errorText;
+                try {
+                    const errorJson = JSON.parse(errorText);
+                    errorDetail = errorJson;
+                    console.error('❌ [API] Erro HTTP (parsed):', errorJson);
+                } catch (e) {
+                    console.error('❌ [API] Erro HTTP (raw):', errorText);
+                }
+
+                console.error('❌ [API] Full error:', {
                     status: response.status,
                     statusText: response.statusText,
-                    body: errorText
+                    body: errorDetail
                 });
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+
+                throw new Error(`HTTP ${response.status}: ${errorDetail.error || errorDetail.message || response.statusText}`);
             }
 
             const createdFine = await response.json();
