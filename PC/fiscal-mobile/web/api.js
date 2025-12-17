@@ -60,11 +60,16 @@ const API = {
      * Save a new fine to backend
      */
     async saveFine(fine) {
+        console.log('📤 [API] saveFine() INICIADO');
+        console.log('📋 [API] Dados recebidos:', fine);
+
         try {
             // Convert photos to base64 array (extract data URLs)
+            console.log('🖼️ [API] Processando fotos...', fine.photos);
             const photosBase64 = fine.photos && fine.photos.length > 0
                 ? fine.photos.map(photo => photo.dataUrl)
                 : [];
+            console.log(`✅ [API] ${photosBase64.length} foto(s) processada(s)`);
 
             const payload = {
                 spot_id: fine.spotId,
@@ -78,6 +83,12 @@ const API = {
                 // GPS e location_address são buscados automaticamente pelo backend via spot_id
             };
 
+            console.log('📦 [API] Payload preparado:', {
+                ...payload,
+                photos: `[${payload.photos.length} foto(s)]` // Não mostrar base64 completo
+            });
+            console.log(`🌐 [API] Enviando POST para: ${this.config.BACKEND_URL}/api/fines`);
+
             const response = await fetch(`${this.config.BACKEND_URL}/api/fines`, {
                 method: 'POST',
                 headers: {
@@ -86,14 +97,23 @@ const API = {
                 body: JSON.stringify(payload)
             });
 
+            console.log(`📡 [API] Resposta recebida - Status: ${response.status} ${response.statusText}`);
+
             if (!response.ok) {
+                const errorText = await response.text();
+                console.error('❌ [API] Erro HTTP:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    body: errorText
+                });
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
             const createdFine = await response.json();
+            console.log('✅ [API] Coima criada com sucesso no backend:', createdFine);
 
             // Transform backend response to frontend format
-            return {
+            const transformedFine = {
                 fineId: createdFine.fine_id,
                 spotId: createdFine.spot_id,
                 plate: createdFine.license_plate,
@@ -110,8 +130,14 @@ const API = {
                 history: createdFine.history || [],
                 rua: createdFine.location_address
             };
+
+            console.log('🔄 [API] Coima transformada para formato frontend:', transformedFine);
+            return transformedFine;
+
         } catch (error) {
-            console.error('Error saving fine:', error);
+            console.error('❌ [API] ERRO ao guardar coima:', error);
+            console.error('📍 [API] Stack trace:', error.stack);
+            console.warn('⚠️ [API] A usar fallback para localStorage...');
             // Fallback to localStorage
             return this.saveFineToLocalStorage(fine);
         }

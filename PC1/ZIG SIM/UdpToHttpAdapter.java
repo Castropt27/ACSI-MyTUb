@@ -85,6 +85,12 @@ public class UdpToHttpAdapter {
                     } else {
                         System.out.println("[" + timestamp + "] SENSOR LIVRE - Lugar Livre!");
                     }
+
+                    // DEBUG: Mostrar JSON completo quando o estado muda
+                    System.out.println("DEBUG - JSON enviado ao gateway:");
+                    System.out.println(rawData);
+                    System.out.println("---");
+
                     lastState = currentState;
                 }
 
