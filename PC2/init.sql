@@ -76,6 +76,19 @@ CREATE INDEX IF NOT EXISTS idx_fines_spot_id ON fines(spot_id);
 CREATE INDEX IF NOT EXISTS idx_fines_status ON fines(status);
 CREATE INDEX IF NOT EXISTS idx_fines_fiscal_id ON fines(fiscal_id);
 
+-- Sent irregularities tracking (prevent duplicate notifications after fine creation)
+CREATE TABLE IF NOT EXISTS sent_irregularities (
+    id SERIAL PRIMARY KEY,
+    spot_id VARCHAR(50) NOT NULL,
+    occupied_since TIMESTAMP NOT NULL,
+    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    reason VARCHAR(50) DEFAULT 'IRREGULARITY', -- IRREGULARITY or FINE_CREATED
+    UNIQUE(spot_id, occupied_since)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sent_irreg_spot ON sent_irregularities(spot_id);
+CREATE INDEX IF NOT EXISTS idx_sent_irreg_occupied_since ON sent_irregularities(occupied_since);
+
 -- Create view for latest readings per sensor
 CREATE OR REPLACE VIEW latest_sensor_readings AS
 SELECT DISTINCT ON (sensor_id) 
@@ -118,6 +131,11 @@ SELECT
             WHERE ps.spot_id = sr.sensor_id 
             AND ps.status = 'ACTIVE' 
             AND ps.end_time > NOW()
+        ) THEN false
+        WHEN EXISTS (
+            SELECT 1 FROM sent_irregularities si
+            WHERE si.spot_id = sr.sensor_id
+            AND si.occupied_since = sr.timestamp
         ) THEN false
         ELSE true
     END as is_irregular
