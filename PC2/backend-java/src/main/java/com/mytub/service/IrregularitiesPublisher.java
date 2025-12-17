@@ -78,6 +78,12 @@ public class IrregularitiesPublisher {
                 String key = irr.spotId() + ":" + irr.occupiedSince();
                 if (sentKeys.contains(key)) continue;
 
+                // Insert into sent_irregularities to mark as notified
+                jdbcTemplate.update(
+                    "INSERT INTO sent_irregularities (spot_id, occupied_since, reason) VALUES (?, ?::timestamp, 'IRREGULARITY') ON CONFLICT DO NOTHING",
+                    irr.spotId(), irr.occupiedSince()
+                );
+
                 Map<String, Object> payload = new HashMap<>();
                 payload.put("type", "IRREGULARITY_DETECTED");
                 payload.put("spot_id", irr.spotId());
