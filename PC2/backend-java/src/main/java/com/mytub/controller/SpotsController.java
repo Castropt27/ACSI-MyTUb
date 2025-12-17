@@ -73,10 +73,19 @@ public class SpotsController {
     @GetMapping("/api/spots")
     public Map<String, Object> getClientSpots() {
         List<Spot> spots = jdbcTemplate.query(BASE_QUERY, new SpotRowMapper());
+        List<Map<String, Object>> sanitized = spots.stream().map(s -> {
+            Map<String, Object> m = new HashMap<>();
+            m.put("spotId", s.getSpotId());
+            m.put("ocupado", s.isOcupado());
+            m.put("minutesSinceChange", s.getMinutesSinceChange());
+            m.put("gpsLat", s.getGpsLat());
+            m.put("gpsLng", s.getGpsLng());
+            return m;
+        }).toList();
         Map<String, Object> res = new HashMap<>();
         res.put("timestamp", Instant.now().toString());
-        res.put("total_spots", spots.size());
-        res.put("spots", spots);
+        res.put("total_spots", sanitized.size());
+        res.put("spots", sanitized);
         return res;
     }
 
