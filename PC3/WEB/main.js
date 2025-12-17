@@ -485,15 +485,27 @@ document.addEventListener('DOMContentLoaded', function () {
     // ----- AUTH LISTENERS -----
     const loginForm = document.getElementById("loginForm");
     if (loginForm) {
-        loginForm.addEventListener("submit", (e) => {
+        loginForm.addEventListener("submit", async (e) => {
             e.preventDefault();
             const name = document.getElementById("clientName").value.trim();
             const password = document.getElementById("clientPassword").value;
+            const submitBtn = loginForm.querySelector("button[type='submit']");
 
-            if (typeof AuthModule !== 'undefined' && AuthModule.login(name, password)) {
-                showToast("Login efetuado com sucesso!", "success");
-            } else {
-                showToast("Nome ou palavra-passe incorretos.", "error");
+            if (submitBtn) submitBtn.disabled = true;
+            if (submitBtn) submitBtn.textContent = "A entrar...";
+
+            if (typeof AuthModule !== 'undefined') {
+                const success = await AuthModule.login(name, password);
+                if (success) {
+                    showToast("Login efetuado com sucesso!", "success");
+                } else {
+                    showToast("Credenciais inválidas ou erro de conexão.", "error");
+                }
+            }
+
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Entrar";
             }
         });
     }
@@ -554,11 +566,15 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
+            const valor = duracao * 0.02; // Pricing logic centralized here? Or keep in payment.js?
+            // To ensure consistency, let's store it.
+
             sessaoPendente = {
                 lugarId: lugarSelecionado.id,
                 lugarNome: lugarSelecionado.nome,
                 matricula,
                 duracao,
+                valor,
                 inicio: new Date()
             };
 

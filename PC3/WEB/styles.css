@@ -1597,10 +1597,9 @@ body {
     /* Remove hover effects on touch devices */
     button:hover,
     .btn-primary:hover,
-    .btn-secondary:hover,
-    #refresh-btn:hover,
-    #start-session-btn:hover {
+    .btn-secondary:hover {
         transform: none;
+        box-shadow: none;
     }
 
     /* Add active states for touch feedback */

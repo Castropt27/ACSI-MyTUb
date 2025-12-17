@@ -5,7 +5,7 @@ services:
     image: nginx:alpine
     container_name: pc3_web
     ports:
-      - "8080:80"
+      - "8085:85"
     volumes:
       # monta a pasta toda (index.html + style.css + o que vier)
       - ./WEB:/usr/share/nginx/html:ro

@@ -56,6 +56,7 @@ services:
       DB_NAME: sensor_data
       DB_USER: backend
       DB_PASSWORD: backend123
+      KAFKA_BOOTSTRAP_SERVERS: 192.168.21.227:9093
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,7 +67,7 @@ services:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
     ports:
-      - "8080:8080"
+      - "8081:8080"
     environment:
       KAFKA_CLUSTERS_0_NAME: pc1
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: 192.168.21.227:9093
