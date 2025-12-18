@@ -90,8 +90,14 @@ function fecharPainelLugar() {
 }
 
 // --- SESSION POLLING & STATE MANAGEMENT ---
+// --- SESSION POLLING & STATE MANAGEMENT (DEPRECATED but kept for fallback or removed if full switch?)
+// Actually, let's remove the old declarations to fix the conflict.
+// The new logic is at line ~147.
+// I will comment out these lines or remove them.
+/*
 let sessionPollingInterval = null;
 let currentSessionId = null;
+*/
 
 async function checkActiveSession(spotId) {
     try {
@@ -107,43 +113,93 @@ async function checkActiveSession(spotId) {
         return null;
     }
 }
+// Polling Removed
 
-function startSessionPolling(sessionId) {
-    if (sessionPollingInterval) clearInterval(sessionPollingInterval);
-    currentSessionId = sessionId;
 
-    // Poll immediately
-    pollSessionStatus();
+// Polling functions removed
 
-    sessionPollingInterval = setInterval(pollSessionStatus, 2000);
+// --- SESSION WEBSOCKET LOGIC ---
+let wsClient = null;
+let currentSessionId = null;
+
+function connectWebSocket(sessionId) {
+    if (wsClient && wsClient.readyState === WebSocket.OPEN) {
+        return;
+    }
+
+    // Connect to the Bridge (Client Browser -> Localhost:3001)
+    wsClient = new WebSocket('ws://localhost:3001');
+
+    wsClient.onopen = () => {
+        console.log('✅ Connected to Kafka Bridge');
+    };
+
+    wsClient.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            // Expected format: { topic: "...", event: { ... } }
+            console.log("Global Notification:", data);
+
+            if (data.topic === 'notifications.sessions') {
+                const payload = data.event; // The actual event data
+
+                // Normalizing ID (Backend uses session_id)
+                const payloadSessionId = payload.sessionId || payload.session_id;
+
+                if (currentSessionId && String(payloadSessionId) === String(currentSessionId)) {
+                    // Inject normalized ID for handleNotification
+                    handleNotification({ ...payload, sessionId: payloadSessionId });
+                }
+            }
+        } catch (e) {
+            console.error("Error parsing WS message:", e);
+        }
+    };
+
+    wsClient.onclose = () => {
+        console.log('❌ Disconnected from Bridge');
+        // Optional: Reconnect logic
+        setTimeout(() => connectWebSocket(sessionId), 5000);
+    };
+
+    wsClient.onerror = (err) => {
+        console.error("WS Error:", err);
+    };
 }
 
-async function pollSessionStatus() {
-    if (!currentSessionId) return;
+function handleNotification(data) {
+    // data: { sessionId: "...", status: "GRACE", type: "SESSION_PAYMENT_REQUIRED", ... }
 
-    try {
-        const response = await fetch(`http://192.168.21.17:8000/api/sessions/${currentSessionId}`);
-        if (!response.ok) {
-            if (response.status === 404) {
-                // Session likely gone
-                console.warn("Session not found during polling");
-                stopSessionPolling();
-            }
-            return;
+    // Normalize status check
+    // Backend sends "type": "SESSION_PAYMENT_REQUIRED" for grace period start
+    // or status: "GRACE"
+
+    const isGrace = (data.status === "GRACE") || (data.type === "SESSION_PAYMENT_REQUIRED");
+    const isExpired = (data.status === "EXPIRED") || (data.type === "SESSION_FINAL_NOTICE"); // Assuming final notice is expired
+
+    if (isGrace) {
+        if (typeof ExtensionModule !== 'undefined') {
+            ExtensionModule.triggerRenewal({ sessionId: data.sessionId, ...data });
         }
-
-        const session = await response.json();
-        updateSessionUI(session);
-    } catch (e) {
-        console.error("Polling error:", e);
+    } else if (isExpired) {
+        showExpiredState();
+        stopSessionWebSocket();
     }
 }
 
-function stopSessionPolling() {
-    if (sessionPollingInterval) clearInterval(sessionPollingInterval);
-    sessionPollingInterval = null;
+function startSessionWebSocket(sessionId) {
+    currentSessionId = sessionId;
+    if (!wsClient || wsClient.readyState !== WebSocket.OPEN) {
+        connectWebSocket(sessionId);
+    }
+}
+
+function stopSessionWebSocket() {
     currentSessionId = null;
-    // Clear banners if any
+    if (wsClient) {
+        wsClient.close();
+        wsClient = null;
+    }
     const banner = document.getElementById("grace-banner");
     if (banner) banner.remove();
 }
@@ -170,10 +226,12 @@ function updateSessionUI(session) {
     }
 
     if (status === "GRACE") {
-        showGraceBanner(session);
+        if (typeof ExtensionModule !== 'undefined') {
+            ExtensionModule.triggerRenewal(session);
+        }
     } else if (status === "EXPIRED") {
         showExpiredState(session);
-        stopSessionPolling();
+        stopSessionWebSocket();
     } else {
         // ACTIVE
         // Ideally update timer in panel if open
@@ -188,67 +246,7 @@ function updateSessionUI(session) {
     }
 }
 
-function showGraceBanner(session) {
-    let banner = document.getElementById("grace-banner");
-    if (!banner) {
-        banner = document.createElement("div");
-        banner.id = "grace-banner";
-        banner.style.position = "fixed";
-        banner.style.top = "0";
-        banner.style.left = "0";
-        banner.style.width = "100%";
-        banner.style.backgroundColor = "#F57F17"; // Warning Orange
-        banner.style.color = "white";
-        banner.style.padding = "10px";
-        banner.style.textAlign = "center";
-        banner.style.zIndex = "3000";
-        banner.style.fontWeight = "bold";
-        banner.innerHTML = `
-            ⚠️ O tempo expirou! Tens <span id="grace-countdown">30</span>s para renovar. 
-            <button id="banner-renew-btn" style="background: white; color: #F57F17; border: none; padding: 4px 8px; margin-left: 10px; border-radius: 4px; cursor: pointer;">RENOVAR AGORA</button>
-        `;
-        document.body.appendChild(banner);
 
-        document.getElementById("banner-renew-btn").addEventListener("click", () => {
-            // Open Renewal UI (Payment Screen directly?)
-            // Or Open Place Panel
-            // Let's assume re-opening payment with current session context
-            sessaoPendente = {
-                lugarId: session.spotId,
-                lugarNome: "Renovação",
-                matricula: session.licensePlate, // From session
-                duracao: 0, // Will be set by user
-                isRenewal: true,
-                sessionId: session.sessionId
-            };
-            abrirEcraPagamento(); // Need to adjust this to show duration selection?
-            // Actually, extension.js handles "Renewal". Maybe open Extension Modal?
-            // "Renovar" button -> Extension Selection
-
-            // Simpler: Trigger extension flow IF we have logic for it.
-            // For now, let's just open the Place Panel or Payment.
-            // Wait, User said "Renovar: POST .../renew".
-            // extension.js has logic for "extension".
-            // Let's invoke extension.js logic if possible.
-            const extModal = document.getElementById("extension-selection-modal");
-            if (extModal) {
-                // Prepare context for extension
-                // We need to know which session it is.
-                // extension.js uses `activeSession` logic.
-                // We might need to inject this session into `sessionData` or similar logic.
-                // Use extension.js `applyExtension` placeholder?
-
-                // Reuse Opening Place Panel for simplicity if it handles "Renovar"
-                // User said "mostrar botão Renovar" in panel.
-            }
-        });
-    }
-
-    // Update Countdown
-    const countdown = document.getElementById("grace-countdown");
-    // This needs real calculation based on `graceEndTime`. 
-    // Assuming 30s fixed for now from trigger.
-}
 
 function showExpiredState() {
     const banner = document.getElementById("grace-banner");
@@ -308,9 +306,9 @@ async function abrirPainelLugar(lugar) {
 
         if (form) form.classList.add("hidden");
 
-        // Start polling this session if not already
+        // Start WebSocket for this session if not already
         if (currentSessionId !== activeSession.sessionId) {
-            startSessionPolling(activeSession.sessionId);
+            startSessionWebSocket(activeSession.sessionId);
         }
 
     } else if (activeSession && !isMySession) {
@@ -344,14 +342,18 @@ async function abrirPainelLugar(lugar) {
         }
 
         if (!livre) {
+            // Occupied Spot -> Enable Payment (User parked, now pays)
             startBtn.disabled = false;
             startBtn.textContent = "Pagar Estacionamento";
         } else {
+            // Free Spot -> Disable (No car to pay for)
             startBtn.disabled = true;
             startBtn.textContent = "Lugar Livre";
         }
     }
 
+    // FIX: Always Ensure start button is visible (remove hidden if it was added by form)
+    if (startBtn) startBtn.classList.remove("hidden");
     panel.classList.remove("hidden");
 }
 
@@ -401,9 +403,9 @@ window.finishParkingSession = async function (method) {
             const resData = await response.json();
             console.log("Session created in backend:", resData);
 
-            // Start Polling immediately if we have sessionId
+            // Start WebSocket immediately if we have sessionId
             if (resData.sessionId) {
-                startSessionPolling(resData.sessionId);
+                startSessionWebSocket(resData.sessionId);
                 showToast(`Sessão criada! ID: ${resData.sessionId}`, "success");
             } else {
                 showToast("Sessão criada (sem ID retornado).", "success");
@@ -589,6 +591,9 @@ document.addEventListener('DOMContentLoaded', function () {
     if (cancelBtn) {
         cancelBtn.addEventListener("click", () => {
             if (form) form.classList.add("hidden");
+            // FIX: Restore start button visibility when cancelling form
+            const startBtn = document.getElementById("start-session-btn");
+            if (startBtn) startBtn.classList.remove("hidden");
         });
     }
 
@@ -677,63 +682,10 @@ document.addEventListener('DOMContentLoaded', function () {
     const timeBtns = document.querySelectorAll(".time-btn");
 
     // Mutable Session Data - EXPOSED GLOBALLY
-    window.sessionData = [
-        {
-            id: 1,
-            spot: "Lugar 3",
-            location: "Praça do Comércio",
-            startDate: new Date(Date.now() - 50 * 60 * 1000).toISOString(), // Started 50 mins ago
-            endDate: new Date(Date.now() + 10 * 60 * 1000).toISOString(),   // Ends in 10 mins (Active)
-            duration: "60 min",
-            cost: "1.20 €",
-            plate: "AA-12-BB",
-            status: "Em Progresso"
-        },
-        {
-            id: 2,
-            spot: "Lugar 1",
-            location: "Praça do Comércio",
-            startDate: "2025-12-16T09:15:00",
-            endDate: "2025-12-16T09:45:00",
-            duration: "30 min",
-            cost: "0.60 €",
-            plate: "CC-34-DD",
-            status: "Concluído"
-        },
-        {
-            id: 3,
-            spot: "Lugar 5",
-            location: "Praça do Comércio",
-            startDate: "2025-12-15T18:45:00",
-            endDate: "2025-12-15T20:45:00",
-            duration: "120 min",
-            cost: "2.40 €",
-            plate: "EE-56-FF",
-            status: "Concluído"
-        },
-        {
-            id: 4,
-            spot: "Lugar 2",
-            location: "Praça do Comércio",
-            startDate: "2025-12-15T10:00:00",
-            endDate: "2025-12-15T11:00:00",
-            duration: "60 min",
-            cost: "1.20 €",
-            plate: "AA-12-BB",
-            status: "Concluído"
-        },
-        {
-            id: 5,
-            spot: "Lugar 4",
-            location: "Praça do Comércio",
-            startDate: "2025-12-14T14:00:00",
-            endDate: "2025-12-14T16:00:00",
-            duration: "120 min",
-            cost: "2.40 €",
-            plate: "CC-34-DD",
-            status: "Concluído"
-        }
-    ];
+    // Clear static data for production/test feel
+    window.sessionData = [];
+    // Clear static data for production/test feel
+    window.sessionData = [];
 
     // Extension Logic moved to extension.js
 
@@ -751,7 +703,8 @@ document.addEventListener('DOMContentLoaded', function () {
     function renderHistoryCard(item) {
         const isInProgress = item.status === "Em Progresso";
         const statusClass = isInProgress ? "in-progress" : "completed";
-        const cardClass = isInProgress ? "history-item active" : "history-item";
+        // FIX: Add 'completed' class for concluded sessions to allow green border styling
+        const cardClass = isInProgress ? "history-item active" : "history-item completed";
 
         // Calculate visual remaining time if active
         let remainingBadge = '';
@@ -831,9 +784,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (recentHistory.length === 0) {
             html += `
-                <div class="empty-history">
-                    <div class="empty-icon">🚗</div>
-                    <p>Ainda não tem histórico de estacionamento.</p>
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 40px; min-height: 200px; color: var(--color-grey);">
+                    <div style="font-size: 3rem; margin-bottom: var(--spacing-sm);">🚗</div>
+                    <p style="font-size: var(--font-size-sm);">Ainda não tem histórico de estacionamento.</p>
                 </div>
             `;
         } else {
@@ -842,20 +795,20 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         }
 
-        html += `</div>`; // Close history-list
+        html += `</div > `; // Close history-list
 
         if (hasMore) {
             html += `
-                <div class="history-more-container">
+                < div class="history-more-container" >
                     <button id="view-all-history-btn" class="btn-view-all">
                         <span class="dots">•••</span>
                     </button>
                     <p class="view-all-label">Ver todo o histórico</p>
-                </div>
-            `;
+                </div >
+                `;
         }
 
-        html += `</div>`; // Close container
+        html += `</div > `; // Close container
         historyScreen.innerHTML = html;
         historyScreen.classList.remove("hidden");
 
@@ -877,7 +830,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const grouped = {};
         sessionData.forEach(item => {
             const dateObj = new Date(item.startDate);
-            const dateKey = `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()}`;
+            const dateKey = `${String(dateObj.getDate()).padStart(2, '0')} /${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()} `;
             if (!grouped[dateKey]) grouped[dateKey] = [];
             grouped[dateKey].push(item);
         });
@@ -889,7 +842,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         let html = `
-            <div class="history-container">
+                < div class="history-container" >
                 <div class="history-header">
                      <button id="back-history-btn" class="nav-back-btn">← Voltar</button>
                      <h2>Histórico Completo</h2>
@@ -904,7 +857,7 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         });
 
-        html += `</div></div>`;
+        html += `</div></div > `;
         historyScreen.innerHTML = html;
 
         const backBtn = document.getElementById("back-history-btn");
@@ -940,19 +893,19 @@ document.addEventListener('DOMContentLoaded', function () {
         const initial = user.name.charAt(0).toUpperCase();
 
         accountScreen.innerHTML = `
-            <div class="account-header">
-                <button id="btn-settings-account" class="btn-settings-icon">⚙️</button>
-            </div>
-            <div class="profile-container">
-                <div class="profile-avatar">${initial}</div>
-                <div class="profile-name">${user.name}</div>
-                <div class="profile-email">Cliente myTUB</div>
-                
-                <button id="logout-btn-account" class="btn-logout-account">
-                    Terminar Sessão
-                </button>
-            </div>
-        `;
+                <div class="account-header">
+                    <button id="btn-settings-account" class="btn-settings-icon">⚙️</button>
+                </div>
+                <div class="profile-container">
+                    <div class="profile-avatar">${initial}</div>
+                    <div class="profile-name">${user.name}</div>
+                    <div class="profile-email">Cliente myTUB</div>
+
+                    <button id="logout-btn-account" class="btn-logout-account">
+                        Terminar Sessão
+                    </button>
+                </div>
+            `;
 
         accountScreen.classList.remove("hidden");
 
