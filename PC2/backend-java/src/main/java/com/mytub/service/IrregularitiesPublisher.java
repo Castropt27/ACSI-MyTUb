@@ -100,10 +100,12 @@ public class IrregularitiesPublisher {
 
             // Publish RESOLVED for spots no longer irregular
             String resolvedSql = """
-                SELECT DISTINCT sr.spot_id
+                SELECT DISTINCT sr.sensor_id AS spot_id
                 FROM latest_sensor_readings sr
                 WHERE sr.ocupado = false
-                AND sr.spot_id IN (SELECT DISTINCT spot_id FROM irregularities WHERE is_irregular = true)
+                  AND sr.sensor_id IN (
+                       SELECT DISTINCT spot_id FROM irregularities WHERE is_irregular = true
+                  )
             """;
             List<String> clearedSpots = jdbcTemplate.query(
                     resolvedSql,
