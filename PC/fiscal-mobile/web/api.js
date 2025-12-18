@@ -20,7 +20,7 @@ const API = {
     async getFines(fiscalId) {
         try {
             // PC2 backend endpoint: GET /api/fines (returns all fines, not filtered by fiscal)
-            const response = await fetch(`${this.config.BACKEND_URL}/api/fines`);
+            const response = await fetch(`${this.config.BACKEND_URL}/api/fines/fiscal/45`);
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -28,32 +28,57 @@ const API = {
 
             const data = await response.json();
 
+            // 🔍 DEBUG: Ver dados brutos do backend
+            console.log('📦 [API] Raw data from PC2:', data);
+            console.log('📦 [API] data.fines:', data.fines);
+            console.log('📦 [API] Is array?', Array.isArray(data));
+            console.log('📦 [API] First item:', data.fines ? data.fines[0] : data[0]);
+
             // Transform backend format to frontend format
-            // Filter by fiscalId if needed (PC2 returns all fines)
-            const allFines = (data.fines || data || []).map(fine => ({
-                fineId: fine.fine_id,
-                spotId: fine.spot_id,
-                plate: fine.license_plate || 'N/D',
-                fiscalId: fine.fiscal_id,
-                fiscalNome: fine.fiscal_name,
-                timestamp: fine.issue_timestamp,
-                gps: {
-                    lat: fine.gps_lat,
-                    lng: fine.gps_lng,
-                    accuracy: 10 // Default value
-                },
-                photos: fine.photos ? fine.photos.map(url => ({
-                    name: 'photo.jpg',
-                    dataUrl: url  // URL from PC2 upload
-                })) : [],
-                observations: fine.reason || '',
-                status: fine.status,
-                history: fine.history || [],
-                rua: fine.location_address || ''
-            }));
+            // PC2 sends in camelCase!
+            const allFines = (data.fines || data || []).map(fine => {
+                // Parse history if it's a JSON string
+                let history = [];
+                try {
+                    if (typeof fine.history === 'string') {
+                        history = JSON.parse(fine.history);
+                    } else if (Array.isArray(fine.history)) {
+                        history = fine.history;
+                    }
+                } catch (e) {
+                    console.warn('Failed to parse history:', fine.history);
+                    history = [];
+                }
+
+                return {
+                    fineId: fine.fineId,          // PC2 usa camelCase!
+                    spotId: fine.spotId,
+                    plate: fine.licensePlate || 'N/D',
+                    fiscalId: fine.fiscalId,
+                    fiscalNome: fine.fiscalName,
+                    timestamp: fine.issueTimestamp,
+                    gps: {
+                        lat: fine.gpsLat,
+                        lng: fine.gpsLng,
+                        accuracy: 10 // Default value
+                    },
+                    photos: fine.photos ? fine.photos.map(url => {
+                        console.log('📸 [API] Photo URL:', url);
+                        return {
+                            name: 'photo.jpg',
+                            dataUrl: url  // URL from PC2 upload
+                        };
+                    }) : [],
+                    observations: fine.reason || fine.notes || '',
+                    status: fine.status,
+                    history: history,  // Parsed array
+                    rua: fine.locationAddress || ''
+                };
+            });
 
             // Filter by fiscalId on frontend (if PC2 doesn't filter)
             // return fiscalId ? allFines.filter(f => f.fiscalId === fiscalId) : allFines;
+            console.log('✅ [API] Transformed fines:', allFines);
             return allFines;  // Return all for now
 
         } catch (error) {
