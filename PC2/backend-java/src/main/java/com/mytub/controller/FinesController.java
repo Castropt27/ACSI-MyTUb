@@ -36,6 +36,9 @@ public class FinesController {
 
     @Value("${kafka.bootstrap-servers}")
     private String bootstrapServers;
+    
+    @Value("${kafka.fines.topic:notifications.fines}")
+    private String finesTopic;
 
     public FinesController(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
@@ -203,8 +206,9 @@ public class FinesController {
                 event.put("timestamp", Instant.now().toString());
                 event.put("message", "Coima emitida: " + request.getReason() + ". Valor: €" + request.getAmount());
 
-                producer.send(new ProducerRecord<>("client.notifications", fineId, objectMapper.writeValueAsString(event)));
-                log.info("Fine notification sent to Kafka: {}", fineId);
+                String topic = finesTopic != null && !finesTopic.isBlank() ? finesTopic : "notifications.fines";
+                producer.send(new ProducerRecord<>(topic, fineId, objectMapper.writeValueAsString(event)));
+                log.info("Fine notification sent to Kafka topic {}: {}", topic, fineId);
             } catch (Exception e) {
                 log.warn("Failed to publish fine to Kafka: {}", e.getMessage());
             }
