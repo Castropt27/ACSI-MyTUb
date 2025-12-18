@@ -81,6 +81,44 @@ public class SessionsController {
         return ResponseEntity.ok(list.get(0));
     }
 
+    @GetMapping("/sessions")
+    public ResponseEntity<Map<String, Object>> list(
+            @RequestParam(value = "licensePlate", required = false) String licensePlate,
+            @RequestParam(value = "userName", required = false) String userName,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "20") int size
+    ) {
+        StringBuilder sql = new StringBuilder("SELECT * FROM parking_sessions");
+        List<Object> params = new ArrayList<>();
+        List<String> where = new ArrayList<>();
+
+        if (licensePlate != null && !licensePlate.isBlank()) {
+            where.add("license_plate = ?");
+            params.add(licensePlate);
+        }
+        if (userName != null && !userName.isBlank()) {
+            where.add("user_name = ?");
+            params.add(userName);
+        }
+
+        if (!where.isEmpty()) {
+            sql.append(" WHERE ").append(String.join(" AND ", where));
+        }
+
+        sql.append(" ORDER BY start_time DESC LIMIT ? OFFSET ?");
+        params.add(size);
+        params.add(page * size);
+
+        List<SessionDto> list = jdbcTemplate.query(sql.toString(), new SessionRowMapper(), params.toArray());
+
+        Map<String, Object> res = new HashMap<>();
+        res.put("timestamp", Instant.now().toString());
+        res.put("page", page);
+        res.put("size", size);
+        res.put("sessions", list);
+        return ResponseEntity.ok(res);
+    }
+
     @PutMapping("/sessions/{sessionId}/extend")
     public ResponseEntity<SessionDto> extend(@PathVariable("sessionId") String sessionId, @RequestParam("additionalMinutes") int additionalMinutes) {
         jdbcTemplate.update("UPDATE parking_sessions SET end_time = end_time + (INTERVAL '1 minute' * ?) , updated_at = NOW() WHERE session_id = ? AND status = 'ACTIVE'", additionalMinutes, sessionId);
