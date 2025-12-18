@@ -271,11 +271,13 @@
   <div id="extension-warning-modal" class="modal hidden" style="z-index: 2000;">
     <div class="modal-content warning-modal">
       <div class="warning-icon">⚠️</div>
-      <h3>Atenção!</h3>
-      <p>O seu tempo de estacionamento termina em <strong>5 minutos</strong>.</p>
-      <p>Deseja estender o tempo?</p>
+      <h3>Sessão Expirada!</h3>
+      <p>O seu tempo acabou.</p>
+      <p>Tem <strong id="decision-countdown" style="color: #D32F2F; font-size: 1.2rem;">30</strong> segundos para
+        decidir.</p>
+      <p>Deseja estender o estacionamento?</p>
       <div class="modal-actions">
-        <button id="btn-extend-no" class="btn-secondary">Não</button>
+        <button id="btn-extend-no" class="btn-secondary">Não, terminar</button>
         <button id="btn-extend-yes" class="btn-primary">Sim, estender</button>
       </div>
     </div>
@@ -353,8 +355,7 @@
       <p>A aguardar confirmação do pagamento.</p>
       <div class="warning-box"
         style="margin-top: 20px; background: #FFF3E0; padding: 10px; border-radius: 8px; border: 1px solid #FFE0B2;">
-        <p style="color: #E65100; font-size: 0.9rem;">⚠️ Tem até ao fim do tempo da sessão atual para concluir o
-          pagamento.</p>
+        <p style="color: #E65100; font-size: 0.9rem;">⚠️ Não feche a aplicação enquanto o pagamento é processado.</p>
       </div>
     </div>
   </div>

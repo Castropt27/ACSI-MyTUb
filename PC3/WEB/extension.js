@@ -46,17 +46,15 @@ function checkSessions() {
             const diffMs = end - now;
             const diffMins = Math.floor(diffMs / 60000);
 
-            if (diffMs <= 0) {
-                // Let main.js handling "GRACE" or "EXPIRED" via polling
-                // But for local history tracking:
+            // Allow 35s buffer for the Decision Modal (30s timer)
+            // The popup will handle "Concluído" if user clicks No or Timeout.
+            // This is a failsafe if user ignores everything or UI is closed.
+            if (diffMs <= -35000) {
                 session.status = "Concluído";
                 changed = true;
-                // Don't show toast here to avoid clutter if main.js handles it
             }
-            // User requested NO POPUP at 5 min.
-            // Only at END.
-            // Main.js handles end via Grace Banner.
-            // So we just remove the warning trigger here.
+            // If diffMs is between 0 and -35000, we leave it "Em Progresso"
+            // (or specific status if we wanted "Aguardando", but user asked for "Em Progresso")
         }
     });
 
@@ -123,10 +121,10 @@ function processExtensionPayment(methodName) {
     // Show processing
     if (processingModal) processingModal.classList.remove("hidden");
 
-    // Start 10s Timer
+    // Start 5s Timer
     setTimeout(() => {
         finishPaymentSuccess(methodName);
-    }, 10000);
+    }, 5000);
 }
 
 function finishPaymentSuccess(methodName) {
@@ -180,8 +178,14 @@ async function applyExtension(sessionId, minutes) {
     }
 
     // 2. Update Local Frontend State (Legacy)
+    // 2. Update Local Frontend State (Legacy)
     if (typeof window.sessionData === 'undefined') return;
-    const index = window.sessionData.findIndex(s => s.id === sessionId); // ID type handling?
+
+    // FIX: Check both s.id (legacy) and s.sessionId (backend synced)
+    const index = window.sessionData.findIndex(s =>
+        String(s.id) === String(sessionId) ||
+        String(s.sessionId) === String(sessionId)
+    );
     // Backend returns sessionId as String, our mock uses Number.
     // If we use real IDs from backend, mismatch might occur.
     // We should treat ID comparison carefully.
@@ -195,6 +199,7 @@ async function applyExtension(sessionId, minutes) {
         const currentCost = parseFloat(session.cost.replace(" €", "").replace(",", ".")) || 0;
         session.cost = (currentCost + minutes * 0.02).toFixed(2) + " €";
         session.notified = false; // Reset 
+        session.status = "Em Progresso"; // FORCE status reset to active
         window.sessionData[index] = session;
         if (typeof renderHistory === 'function') renderHistory();
     }
@@ -205,13 +210,27 @@ async function applyExtension(sessionId, minutes) {
 }
 
 // --- EVENT HANDLERS ---
-if (btnExtendYes) btnExtendYes.addEventListener("click", showSelectionModal);
+if (btnExtendYes) {
+    btnExtendYes.addEventListener("click", () => {
+        // User said YES
+        if (window.graceInterval) clearInterval(window.graceInterval);
+        showSelectionModal(); // Open Time Selection
+    });
+}
 
 if (btnExtendNo) {
     btnExtendNo.addEventListener("click", () => {
+        // User said NO
+        if (window.graceInterval) clearInterval(window.graceInterval);
         hideWarningModal();
-        const session = sessionData.find(s => s.id === sessionToExtendId);
-        if (session) session.notified = true;
+        if (typeof showToast === 'function') showToast("Sessão concluída.", "success");
+
+        // Mark as completed immediately
+        const session = sessionData.find(s => s.sessionId === sessionToExtendId || s.id === sessionToExtendId);
+        if (session) {
+            session.status = "Concluído";
+            if (typeof renderHistory === 'function') renderHistory();
+        }
         sessionToExtendId = null;
     });
 }
@@ -279,34 +298,40 @@ startSessionMonitoring();
 // Expose
 window.ExtensionModule = {
     triggerRenewal: function (session) {
-        // Prevent multiple triggers for the same session
-        if (sessionToExtendId === session.sessionId && !document.getElementById("extension-selection-modal").classList.contains("hidden")) {
+        // Prevent multiple triggers
+        if (sessionToExtendId === session.sessionId && !warningModal.classList.contains("hidden")) {
             return;
         }
 
         sessionToExtendId = session.sessionId;
 
-        // Open Standard Modal (Original Design)
-        showSelectionModal();
+        // 1. Open Decision Modal
+        showWarningModal();
 
-        // 30 Seconds Logic
-        // We will not drastically change the UI text as per user request ("quero o design antigo").
-        // We just enforce the timeout.
+        // 2. Start 30s Timer
         if (window.graceInterval) clearInterval(window.graceInterval);
 
         let timeLeft = 30;
-        // Optional: clear any previous custom header if we polluted it? 
-        // We assume standard HTML is static. 
-        // If we want to be nice, we can maybe log or just enforce.
+        const countElem = document.getElementById("decision-countdown");
+        if (countElem) countElem.textContent = timeLeft;
 
-        // Timer to auto-close
         window.graceInterval = setInterval(() => {
             timeLeft--;
+            if (countElem) countElem.textContent = timeLeft;
+
             if (timeLeft <= 0) {
+                // Timeout -> Treat as NO
                 clearInterval(window.graceInterval);
-                hideSelectionModal();
-                if (typeof showToast === 'function') showToast("Tempo de decisão esgotado. Sessão finalizada.", "error");
-                // We do not explicitly emit fine visual here to respect "no fine" request.
+                hideWarningModal();
+                if (typeof showToast === 'function') showToast("Tempo esgotado. Sessão finalizada.", "error");
+
+                // Mark as completed immediately
+                const session = sessionData.find(s => s.sessionId === sessionToExtendId || s.id === sessionToExtendId);
+                if (session) {
+                    session.status = "Concluído";
+                    if (typeof renderHistory === 'function') renderHistory();
+                }
+                sessionToExtendId = null;
             }
         }, 1000);
     },

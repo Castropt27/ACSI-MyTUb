@@ -142,8 +142,13 @@ function connectWebSocket(sessionId) {
 
             if (data.topic === 'notifications.sessions') {
                 const payload = data.event; // The actual event data
-                if (currentSessionId && String(payload.sessionId) === String(currentSessionId)) {
-                    handleNotification(payload);
+
+                // Normalizing ID (Backend uses session_id)
+                const payloadSessionId = payload.sessionId || payload.session_id;
+
+                if (currentSessionId && String(payloadSessionId) === String(currentSessionId)) {
+                    // Inject normalized ID for handleNotification
+                    handleNotification({ ...payload, sessionId: payloadSessionId });
                 }
             }
         } catch (e) {
@@ -163,14 +168,22 @@ function connectWebSocket(sessionId) {
 }
 
 function handleNotification(data) {
-    // data: { sessionId: "...", status: "GRACE" }
-    // Backend (Bridge) sends event.status
-    if (data.status === "GRACE") {
+    // data: { sessionId: "...", status: "GRACE", type: "SESSION_PAYMENT_REQUIRED", ... }
+
+    // Normalize status check
+    // Backend sends "type": "SESSION_PAYMENT_REQUIRED" for grace period start
+    // or status: "GRACE"
+
+    const isGrace = (data.status === "GRACE") || (data.type === "SESSION_PAYMENT_REQUIRED");
+    const isExpired = (data.status === "EXPIRED") || (data.type === "SESSION_FINAL_NOTICE"); // Assuming final notice is expired
+
+    if (isGrace) {
         if (typeof ExtensionModule !== 'undefined') {
             ExtensionModule.triggerRenewal({ sessionId: data.sessionId, ...data });
         }
-    } else if (data.status === "EXPIRED") {
+    } else if (isExpired) {
         showExpiredState();
+        stopSessionWebSocket();
     }
 }
 
@@ -329,14 +342,18 @@ async function abrirPainelLugar(lugar) {
         }
 
         if (!livre) {
+            // Occupied Spot -> Enable Payment (User parked, now pays)
             startBtn.disabled = false;
             startBtn.textContent = "Pagar Estacionamento";
         } else {
+            // Free Spot -> Disable (No car to pay for)
             startBtn.disabled = true;
             startBtn.textContent = "Lugar Livre";
         }
     }
 
+    // FIX: Always Ensure start button is visible (remove hidden if it was added by form)
+    if (startBtn) startBtn.classList.remove("hidden");
     panel.classList.remove("hidden");
 }
 
@@ -574,6 +591,9 @@ document.addEventListener('DOMContentLoaded', function () {
     if (cancelBtn) {
         cancelBtn.addEventListener("click", () => {
             if (form) form.classList.add("hidden");
+            // FIX: Restore start button visibility when cancelling form
+            const startBtn = document.getElementById("start-session-btn");
+            if (startBtn) startBtn.classList.remove("hidden");
         });
     }
 
@@ -662,63 +682,10 @@ document.addEventListener('DOMContentLoaded', function () {
     const timeBtns = document.querySelectorAll(".time-btn");
 
     // Mutable Session Data - EXPOSED GLOBALLY
-    window.sessionData = [
-        {
-            id: 1,
-            spot: "Lugar 3",
-            location: "Praça do Comércio",
-            startDate: new Date(Date.now() - 50 * 60 * 1000).toISOString(), // Started 50 mins ago
-            endDate: new Date(Date.now() + 10 * 60 * 1000).toISOString(),   // Ends in 10 mins (Active)
-            duration: "60 min",
-            cost: "1.20 €",
-            plate: "AA-12-BB",
-            status: "Em Progresso"
-        },
-        {
-            id: 2,
-            spot: "Lugar 1",
-            location: "Praça do Comércio",
-            startDate: "2025-12-16T09:15:00",
-            endDate: "2025-12-16T09:45:00",
-            duration: "30 min",
-            cost: "0.60 €",
-            plate: "CC-34-DD",
-            status: "Concluído"
-        },
-        {
-            id: 3,
-            spot: "Lugar 5",
-            location: "Praça do Comércio",
-            startDate: "2025-12-15T18:45:00",
-            endDate: "2025-12-15T20:45:00",
-            duration: "120 min",
-            cost: "2.40 €",
-            plate: "EE-56-FF",
-            status: "Concluído"
-        },
-        {
-            id: 4,
-            spot: "Lugar 2",
-            location: "Praça do Comércio",
-            startDate: "2025-12-15T10:00:00",
-            endDate: "2025-12-15T11:00:00",
-            duration: "60 min",
-            cost: "1.20 €",
-            plate: "AA-12-BB",
-            status: "Concluído"
-        },
-        {
-            id: 5,
-            spot: "Lugar 4",
-            location: "Praça do Comércio",
-            startDate: "2025-12-14T14:00:00",
-            endDate: "2025-12-14T16:00:00",
-            duration: "120 min",
-            cost: "2.40 €",
-            plate: "CC-34-DD",
-            status: "Concluído"
-        }
-    ];
+    // Clear static data for production/test feel
+    window.sessionData = [];
+    // Clear static data for production/test feel
+    window.sessionData = [];
 
     // Extension Logic moved to extension.js
 
@@ -736,7 +703,8 @@ document.addEventListener('DOMContentLoaded', function () {
     function renderHistoryCard(item) {
         const isInProgress = item.status === "Em Progresso";
         const statusClass = isInProgress ? "in-progress" : "completed";
-        const cardClass = isInProgress ? "history-item active" : "history-item";
+        // FIX: Add 'completed' class for concluded sessions to allow green border styling
+        const cardClass = isInProgress ? "history-item active" : "history-item completed";
 
         // Calculate visual remaining time if active
         let remainingBadge = '';
@@ -816,9 +784,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (recentHistory.length === 0) {
             html += `
-                <div class="empty-history">
-                    <div class="empty-icon">🚗</div>
-                    <p>Ainda não tem histórico de estacionamento.</p>
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 40px; min-height: 200px; color: var(--color-grey);">
+                    <div style="font-size: 3rem; margin-bottom: var(--spacing-sm);">🚗</div>
+                    <p style="font-size: var(--font-size-sm);">Ainda não tem histórico de estacionamento.</p>
                 </div>
             `;
         } else {
@@ -827,20 +795,20 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         }
 
-        html += `</div>`; // Close history-list
+        html += `</div > `; // Close history-list
 
         if (hasMore) {
             html += `
-                <div class="history-more-container">
+                < div class="history-more-container" >
                     <button id="view-all-history-btn" class="btn-view-all">
                         <span class="dots">•••</span>
                     </button>
                     <p class="view-all-label">Ver todo o histórico</p>
-                </div>
-            `;
+                </div >
+                `;
         }
 
-        html += `</div>`; // Close container
+        html += `</div > `; // Close container
         historyScreen.innerHTML = html;
         historyScreen.classList.remove("hidden");
 
@@ -862,7 +830,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const grouped = {};
         sessionData.forEach(item => {
             const dateObj = new Date(item.startDate);
-            const dateKey = `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()}`;
+            const dateKey = `${String(dateObj.getDate()).padStart(2, '0')} /${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()} `;
             if (!grouped[dateKey]) grouped[dateKey] = [];
             grouped[dateKey].push(item);
         });
@@ -874,7 +842,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         let html = `
-            <div class="history-container">
+                < div class="history-container" >
                 <div class="history-header">
                      <button id="back-history-btn" class="nav-back-btn">← Voltar</button>
                      <h2>Histórico Completo</h2>
@@ -889,7 +857,7 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         });
 
-        html += `</div></div>`;
+        html += `</div></div > `;
         historyScreen.innerHTML = html;
 
         const backBtn = document.getElementById("back-history-btn");
@@ -925,19 +893,19 @@ document.addEventListener('DOMContentLoaded', function () {
         const initial = user.name.charAt(0).toUpperCase();
 
         accountScreen.innerHTML = `
-            <div class="account-header">
-                <button id="btn-settings-account" class="btn-settings-icon">⚙️</button>
-            </div>
-            <div class="profile-container">
-                <div class="profile-avatar">${initial}</div>
-                <div class="profile-name">${user.name}</div>
-                <div class="profile-email">Cliente myTUB</div>
-                
-                <button id="logout-btn-account" class="btn-logout-account">
-                    Terminar Sessão
-                </button>
-            </div>
-        `;
+                <div class="account-header">
+                    <button id="btn-settings-account" class="btn-settings-icon">⚙️</button>
+                </div>
+                <div class="profile-container">
+                    <div class="profile-avatar">${initial}</div>
+                    <div class="profile-name">${user.name}</div>
+                    <div class="profile-email">Cliente myTUB</div>
+
+                    <button id="logout-btn-account" class="btn-logout-account">
+                        Terminar Sessão
+                    </button>
+                </div>
+            `;
 
         accountScreen.classList.remove("hidden");
 
